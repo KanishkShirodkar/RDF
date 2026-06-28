@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RDF Topology Analyzer — Warehouse</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;padding:16px}
+h1{color:#58a6ff;font-size:1.3em;margin-bottom:4px}
+.subtitle{font-size:0.8em;color:#8b949e;margin-bottom:14px}
+.upload-zone{border:2px dashed #30363d;border-radius:10px;padding:28px;text-align:center;margin-bottom:16px;cursor:pointer;transition:border-color .2s}
+.upload-zone:hover,.upload-zone.drag{border-color:#58a6ff;background:#0d1117}
+.upload-zone input{display:none}
+.upload-zone .icon{font-size:2.2em;margin-bottom:6px}
+.upload-zone .hint{color:#8b949e;font-size:0.82em;margin-top:5px}
+.hidden{display:none}
+#status{padding:9px 14px;border-radius:6px;margin-bottom:12px;font-size:0.85em;display:none}
+.status-ok{background:#1a3a1a;border:1px solid #3fb950;color:#3fb950}
+.status-warn{background:#3a2a00;border:1px solid #d29922;color:#d29922}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+h2{color:#79c0ff;font-size:0.95em;margin-bottom:6px;border-bottom:1px solid #21262d;padding-bottom:4px}
+.snote{font-size:0.76em;color:#8b949e;margin-bottom:8px}
+canvas{width:100%!important}
+.metric-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.metric{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 16px;flex:1;min-width:120px}
+.metric .label{font-size:0.68em;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}
+.metric .value{font-size:1.45em;font-weight:700;margin-top:2px}
+.green{color:#3fb950}.yellow{color:#d29922}.red{color:#f85149}.blue{color:#58a6ff}
+table{width:100%;border-collapse:collapse;font-size:0.82em}
+th{background:#21262d;color:#8b949e;padding:5px 9px;text-align:left;font-weight:600}
+td{padding:4px 9px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:0.73em;font-weight:600}
+.badge-ok{background:#1a3a1a;color:#3fb950;border:1px solid #3fb950}
+.badge-warn{background:#3a2a00;color:#d29922;border:1px solid #d29922}
+.badge-fail{background:#3a0a0a;color:#f85149;border:1px solid #f85149}
+/* Topology canvas */
+#topoCanvas{width:100%;border-radius:6px;background:#0d1117;display:block}
+.legend-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:0.78em}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+
+/* ── Expand/Download button styles ── */
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;border-bottom:1px solid #21262d;padding-bottom:4px}
+.card-header h2{color:#79c0ff;font-size:0.95em;margin:0;border:none;padding:0}
+.card-actions{display:flex;gap:6px;flex-shrink:0}
+.btn-icon{background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:0.75em;display:flex;align-items:center;gap:3px;transition:all .15s}
+.btn-icon:hover{background:#30363d;color:#e0e0e0;border-color:#58a6ff}
+#expandModal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;flex-direction:column;align-items:center;justify-content:center}
+#expandModal.open{display:flex}
+.modal-box{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:18px;width:95vw;max-width:1400px;max-height:94vh;display:flex;flex-direction:column;position:relative}
+.modal-title{color:#79c0ff;font-size:1.05em;font-weight:600;margin-bottom:10px;padding-right:80px}
+.modal-close{position:absolute;top:12px;right:14px;background:#30363d;border:none;color:#e0e0e0;border-radius:5px;padding:4px 12px;cursor:pointer;font-size:0.85em}
+.modal-close:hover{background:#f85149;color:#fff}
+.modal-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;min-height:200px}
+.modal-body img{max-width:100%;max-height:78vh;border-radius:6px;cursor:zoom-in}
+.modal-dl{margin-top:10px;text-align:right}
+.modal-dl button{background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:5px;padding:5px 14px;cursor:pointer;font-size:0.82em}
+.modal-dl button:hover{background:#58a6ff;color:#0f1117}
+</style>
+</head>
+<body>
+
+<h1>🏭 RDF Warehouse — Topology & Network Analyzer</h1>
+<div class="subtitle">Upload a loglistener.txt to generate topology map, dissemination analysis, and miss heatmap · Supports up to 50 nodes</div>
+
+<div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+  <input type="file" id="fileInput" accept=".txt,.log">
+  <div class="icon">📂</div>
+  <div><strong>Click to upload</strong> or drag &amp; drop your loglistener.txt</div>
+  <div class="hint">Works offline on any PC — no internet or install needed</div>
+</div>
+
+<div id="status"></div>
+
+<div id="dashboard" class="hidden">
+
+  <!-- KPI row -->
+  <div class="metric-row" id="kpiRow"></div>
+
+  <!-- Row 1: Topology + P_D bar -->
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="card">
+      <div class="card-header">
+      <h2>Node Topology &amp; Radio Range (50m)</h2>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="openCanvasModal('topoCanvas','Node Topology &amp; Radio Range (50m)')">⛶ Expand</button>
+        <button class="btn-icon" onclick="dlCanvas('topoCanvas','Node Topology &amp; Radio Range (50m)')">⬇ PNG</button>
+      </div>
+    </div>
+      <div class="snote">Green lines = direct link (≤50m). Red dashed = out of range (needs relay). Node colour = P_D status.</div>
+      <canvas id="topoCanvas" height="320"></canvas>
+      <div class="legend-row">
+        <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div>P_D ≥ 99%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div>P_D 90–99%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div>P_D &lt; 90%</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+      <h2>Avg Dissemination Rate P_D per Source</h2>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="openCanvasModal('pdChart','Avg Dissemination Rate P_D per Source')">⛶ Expand</button>
+        <button class="btn-icon" onclick="dlCanvas('pdChart','Avg Dissemination Rate P_D per Source')">⬇ PNG</button>
+      </div>
+    </div>
+      <div class="snote">How well each node's packets reach the rest of the network. Red line = 99% target.</div>
+      <canvas id="pdChart" height="260"></canvas>
+    </div>
+  </div>
+
+  <!-- Row 2: Miss heatmap + distance table -->
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="card">
+      <div class="card-header">
+      <h2>Missed Packet Heatmap (Source → Receiver)</h2>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="openCanvasModal('heatCanvas','Missed Packet Heatmap (Source → Receiver)')">⛶ Expand</button>
+        <button class="btn-icon" onclick="dlCanvas('heatCanvas','Missed Packet Heatmap (Source → Receiver)')">⬇ PNG</button>
+      </div>
+    </div>
+      <div class="snote">Each cell = how many packets from source (row) were never received by node (col). Dark red = frequent miss.</div>
+      <canvas id="heatCanvas" height="300"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header">
+      <h2>Inter-Node Distance Matrix (metres)</h2>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="expandTable('distTable','Inter-Node Distance Matrix')">⛶ Expand</button>
+      </div>
+    </div>
+      <div class="snote">Distances computed from live COOJA positions. Red = beyond 50m radio range.</div>
+      <div id="distTable" style="overflow-x:auto"></div>
+    </div>
+  </div>
+
+  <!-- Row 3: Per-source table -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header">
+      <h2>Per-Source KPI Table</h2>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="expandTable('srcTable','Per-Source KPI Table')">⛶ Expand</button>
+      </div>
+    </div>
+    <table id="srcTable">
+      <tr><th>Source</th><th>Position</th><th>TX Count</th><th>Avg P_D</th><th>Status</th><th>P_EX</th><th>P_EX Status</th><th>Most Missed Node</th><th>Miss Count</th></tr>
+    </table>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// CONFIG — change these values to recompute KPIs automatically
+// ============================================================
+const CFG = {
+  TAOI_MS:    1125,   // Taoi = Rdect/(2*v) = 5/(2*2.222) = 1.125s  [used for P_EX]
+  TAM_S:      45.05,  // Tam  = L/v_max = 100m/2.22m/s = 45.05s     [used for P_D: exclude packets TX before this time]
+  RADIO_M:    50,     // Radio range in metres                        [used for topology links]
+  PD_TARGET:  0.99,   // Dissemination rate target                    [used for P_D pass/fail]
+  PEX_LIMIT:  0.01,   // Excess probability limit                     [used for P_EX pass/fail]
+};
+// ============================================================
+
+// ── PARSER ───────────────────────────────────────────────────────────────
+function parseLog(text) {
+  const lines = text.split('\n');
+  const nodes = new Set();
+  const txEvents = {};
+  const rxEvents = {};
+  const originTimes = {};
+  const hopAtRx = {};
+  const positions = {};
+  let logDuration = 0;
+  let hasV2 = false;
+
+  const tsRe = /^(\d\d):(\d\d\.\d+)\s+ID:(\d+)\s+\[INFO:\s+(\w+)\s*\]\s+(.*)/;
+
+  for (const line of lines) {
+    const m = line.match(tsRe);
+    if (!m) continue;
+    const t = parseInt(m[1])*60 + parseFloat(m[2]);
+    const node = parseInt(m[3]);
+    const module = m[4];
+    const rest = m[5].trim();
+    if (t > logDuration) logDuration = t;
+
+    if (module === 'Main') {
+      if (rest.includes('Node ID:')) nodes.add(parseInt(rest.split('Node ID:')[1].trim()));
+      continue;
+    }
+    if (module !== 'RDF') continue;
+
+    if (rest.startsWith('INIT') || rest.startsWith('DISSEM') || rest.startsWith('EXCESS') ||
+        rest.startsWith('STATS') || rest.startsWith('TX_ORIGIN')) hasV2 = true;
+
+    // POS
+    if (rest.startsWith('POS')) {
+      const pm = rest.match(/node_id=(\d+) live_xy=\((-?\d+) m, (-?\d+) m\)/);
+      if (pm) positions[parseInt(pm[1])] = [parseInt(pm[2]), parseInt(pm[3])];
+      continue;
+    }
+
+    // TX
+    if (rest.startsWith('TX ') && !rest.startsWith('TX_ORIGIN')) {
+      const sm = rest.match(/seq=(\d+)/);
+      if (sm) {
+        const seq = parseInt(sm[1]);
+        if (!txEvents[node]) txEvents[node] = [];
+        txEvents[node].push({t, seq});
+        originTimes[`${node},${seq}`] = t;
+      }
+    }
+
+    // RX
+    if (rest.startsWith('RX ')) {
+      const sm = rest.match(/src=(\d+).*seq=(\d+).*hop=(\d+)/);
+      if (sm) {
+        const src = parseInt(sm[1]), seq = parseInt(sm[2]), hop = parseInt(sm[3]);
+        const key = `${src},${seq}`;
+        if (!rxEvents[key]) rxEvents[key] = {};
+        if (!rxEvents[key][node]) rxEvents[key][node] = [];
+        rxEvents[key][node].push(t);
+        hopAtRx[`${key},${node}`] = hop;
+        // Extract positions from my_xy / src_xy / sender_xy when POS lines missing
+        const mxy = rest.match(/my_xy=\((-?\d+),(-?\d+)\)/);
+        if (mxy && !positions[node]) positions[node] = [parseInt(mxy[1]), parseInt(mxy[2])];
+        const sxy = rest.match(/src_xy=\((-?\d+),(-?\d+)\)/);
+        if (sxy && !positions[src]) positions[src] = [parseInt(sxy[1]), parseInt(sxy[2])];
+        const snxy = rest.match(/sender_xy=\((-?\d+),(-?\d+)\)/);
+        if (snxy) {
+          // sender node is unknown from RX line alone, but src_xy gives source pos
+        }
+      }
+    }
+  }
+
+  // If boot lines were cut off (log capped at 40000 lines), infer nodes from TX/RX
+  if (nodes.size === 0) {
+    Object.keys(txEvents).forEach(n => nodes.add(parseInt(n)));
+    for (const key of Object.keys(rxEvents)) {
+      const src = parseInt(key.split(',')[0]);
+      nodes.add(src);
+      Object.keys(rxEvents[key]).forEach(n => nodes.add(parseInt(n)));
+    }
+  }
+  const totalNodes = nodes.size;
+  const srcList = [...nodes].sort((a,b)=>a-b);
+
+  // Per-packet
+  // NOTE: packets with origin < TAM_S are excluded from P_D calculation
+  // (warm-up period -- network not yet stabilised). P_EX uses ALL packets.
+  const packets = [];
+  const packetsAll = []; // all packets including warm-up (for P_EX)
+  for (const [key, nodeDict] of Object.entries(rxEvents)) {
+    const [src, seq] = key.split(',').map(Number);
+    const origin = originTimes[key];
+    const receivers = Object.keys(nodeDict).map(Number);
+    const otherNodes = srcList.filter(n => n !== src);
+    const pd = receivers.length / Math.max(totalNodes - 1, 1);
+    const missed = otherNodes.filter(n => !receivers.includes(n));
+    let maxAoi = 0, excessCount = 0;
+    if (origin !== undefined) {
+      for (const [n, times] of Object.entries(nodeDict)) {
+        for (const rxT of times) {
+          const aoi = (rxT - origin) * 1000;
+          if (aoi > maxAoi) maxAoi = aoi;
+          if (aoi > CFG.TAOI_MS) excessCount++;
+        }
+      }
+    }
+    const pkt = {src, seq, origin, receivers, missed, pd, maxAoi, excessCount};
+    packetsAll.push(pkt);
+    // Only include in P_D measurement if TX happened after Tam warm-up
+    if (origin === undefined || origin >= CFG.TAM_S) {
+      packets.push(pkt);
+    }
+  }
+
+  // Per-source summary
+  // P_D uses only post-Tam packets; P_EX uses all packets
+  const srcSummary = {};
+  for (const src of srcList) {
+    const pkts    = packets.filter(p => p.src === src);      // post-Tam: for P_D
+    const pktsAll = packetsAll.filter(p => p.src === src);   // all: for P_EX
+    const avgPD = pkts.length ? pkts.reduce((s,p)=>s+p.pd,0)/pkts.length : 0;
+    const totalRx     = pktsAll.reduce((s,p)=>s+p.receivers.length,0);
+    const totalExcess = pktsAll.reduce((s,p)=>s+p.excessCount,0);
+    const pex = totalRx ? totalExcess/totalRx : 0;
+    const txCount = (txEvents[src]||[]).length;
+    const missFreq = {};
+    for (const p of pkts) for (const n of p.missed) missFreq[n] = (missFreq[n]||0)+1;
+    const mostMissed = Object.entries(missFreq).sort((a,b)=>b[1]-a[1])[0];
+    srcSummary[src] = {avgPD, pex, txCount, totalRx, totalExcess, missFreq, mostMissed, pkts};
+  }
+
+  // Miss matrix
+  const missMatrix = {};
+  for (const src of srcList) {
+    missMatrix[src] = {};
+    for (const n of srcList) missMatrix[src][n] = 0;
+    for (const p of packets.filter(p=>p.src===src))
+      for (const n of p.missed) missMatrix[src][n] = (missMatrix[src][n]||0)+1;
+  }
+
+  // Node reach count
+  const nodeRxCount = {};
+  for (const n of srcList) nodeRxCount[n] = 0;
+  for (const p of packets) for (const r of p.receivers) nodeRxCount[r] = (nodeRxCount[r]||0)+1;
+
+  // Distance matrix
+  const distMatrix = {};
+  for (const a of srcList) {
+    distMatrix[a] = {};
+    for (const b of srcList) {
+      if (a === b) { distMatrix[a][b] = 0; continue; }
+      if (positions[a] && positions[b]) {
+        const dx = positions[a][0]-positions[b][0];
+        const dy = positions[a][1]-positions[b][1];
+        distMatrix[a][b] = Math.sqrt(dx*dx+dy*dy);
+      } else distMatrix[a][b] = null;
+    }
+  }
+
+  const allPDs = packets.map(p=>p.pd);  // post-Tam only
+  const avgPD = allPDs.length ? allPDs.reduce((s,v)=>s+v,0)/allPDs.length : 0;
+  const totalRxAll  = Object.values(srcSummary).reduce((s,v)=>s+v.totalRx,0);
+  const totalExcAll = Object.values(srcSummary).reduce((s,v)=>s+v.totalExcess,0);
+  const pexAll = totalRxAll ? totalExcAll/totalRxAll : 0;
+  const warmupPkts  = packetsAll.length - packets.length;
+
+  return {
+    nodes: srcList, totalNodes, logDuration, hasV2,
+    packets, packetsAll, srcSummary, missMatrix, nodeRxCount,
+    distMatrix, positions, txEvents,
+    avgPD, pexAll, totalRxAll, totalExcAll, warmupPkts
+  };
+}
+
+// ── COLOUR HELPERS ────────────────────────────────────────────────────────
+const pdColor = v => v >= CFG.PD_TARGET ? '#3fb950' : v >= 0.90 ? '#d29922' : '#f85149';
+const COLORS = ['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72',
+                '#ffa657','#79c0ff','#56d364','#ff7b72','#d2a8ff','#7ee787'];
+
+// ── TOPOLOGY CANVAS ───────────────────────────────────────────────────────
+function drawTopology(data) {
+  const canvas = document.getElementById('topoCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = Math.max(canvas.offsetWidth || 0, canvas.parentElement ? canvas.parentElement.offsetWidth - 28 : 0, 400);
+  canvas.style.width = W + 'px';
+  canvas.style.height = '320px';
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = 320 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  const {nodes, positions, srcSummary, distMatrix} = data;
+  if (!nodes.length) return;
+
+  // Compute bounding box of positions
+  const posNodes = nodes.filter(n => positions[n]);
+  if (!posNodes.length) return;
+
+  const xs = posNodes.map(n=>positions[n][0]);
+  const ys = posNodes.map(n=>positions[n][1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 40;
+  const scaleX = (W - 2*pad) / Math.max(maxX - minX, 1);
+  const scaleY = (320 - 2*pad) / Math.max(maxY - minY, 1);
+  const scale = Math.min(scaleX, scaleY);
+
+  const px = n => pad + (positions[n][0] - minX) * scale;
+  const py = n => pad + (positions[n][1] - minY) * scale;
+
+  ctx.clearRect(0, 0, W, 320);
+
+  // Draw radio range circles
+  for (const n of posNodes) {
+    const r = CFG.RADIO_M * scale;
+    ctx.beginPath();
+    ctx.arc(px(n), py(n), r, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(88,166,255,0.04)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(88,166,255,0.18)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([4,3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw links
+  for (let i = 0; i < posNodes.length; i++) {
+    for (let j = i+1; j < posNodes.length; j++) {
+      const a = posNodes[i], b = posNodes[j];
+      const d = distMatrix[a]?.[b];
+      if (d === null || d === undefined) continue;
+      ctx.beginPath();
+      ctx.moveTo(px(a), py(a));
+      ctx.lineTo(px(b), py(b));
+      if (d <= CFG.RADIO_M) {
+        ctx.strokeStyle = 'rgba(63,185,80,0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+      } else {
+        ctx.strokeStyle = 'rgba(248,81,73,0.2)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4,3]);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Distance label on direct links only
+      if (d <= CFG.RADIO_M) {
+        const mx = (px(a)+px(b))/2, my = (py(a)+py(b))/2;
+        ctx.fillStyle = '#3fb950';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${Math.round(d)}m`, mx, my-3);
+      }
+    }
+  }
+
+  // Draw nodes
+  for (const n of posNodes) {
+    const s = srcSummary[n];
+    const col = s ? pdColor(s.avgPD) : '#8b949e';
+    const x = px(n), y = py(n);
+
+    // Glow
+    const grad = ctx.createRadialGradient(x,y,2,x,y,16);
+    grad.addColorStop(0, col+'55');
+    grad.addColorStop(1, 'transparent');
+    ctx.beginPath();
+    ctx.arc(x, y, 16, 0, Math.PI*2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(x, y, 10, 0, Math.PI*2);
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff44';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Node label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`N${n}`, x, y);
+
+    // P_D label below
+    if (s) {
+      ctx.fillStyle = col;
+      ctx.font = '8px sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${(s.avgPD*100).toFixed(0)}%`, x, y+13);
+    }
+
+    // Position label
+    if (positions[n]) {
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '7px sans-serif';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`(${positions[n][0]},${positions[n][1]})m`, x, y-13);
+    }
+  }
+}
+
+// ── P_D BAR CHART (pure canvas) ───────────────────────────────────────────
+function drawPDChart(data) {
+  const canvas = document.getElementById('pdChart');
+  const ctx = canvas.getContext('2d');
+  const W = Math.max(canvas.offsetWidth || 0, canvas.parentElement ? canvas.parentElement.offsetWidth - 28 : 0, 300);
+  const H = 260;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0,0,W,H);
+
+  const {nodes, srcSummary} = data;
+  if (!nodes.length) return;
+
+  const padL=45, padR=15, padT=20, padB=50;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const n = nodes.length;
+  const barW = Math.min(chartW/n * 0.6, 40);
+  const gap = chartW/n;
+
+  // Grid lines
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 0.5;
+  for (let v = 0; v <= 100; v += 20) {
+    const y = padT + chartH - (v/100)*chartH;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+chartW, y); ctx.stroke();
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(v+'%', padL-4, y+3);
+  }
+
+  // 99% target line
+  const targetY = padT + chartH - CFG.PD_TARGET*chartH;
+  ctx.strokeStyle = '#f85149';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5,3]);
+  ctx.beginPath(); ctx.moveTo(padL, targetY); ctx.lineTo(padL+chartW, targetY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#f85149';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${(CFG.PD_TARGET*100).toFixed(0)}% target`, padL+chartW-60, targetY-3);
+
+  // Bars
+  nodes.forEach((node, i) => {
+    const s = srcSummary[node];
+    const val = s ? s.avgPD : 0;
+    const x = padL + i*gap + gap/2 - barW/2;
+    const barH = val * chartH;
+    const y = padT + chartH - barH;
+    const col = pdColor(val);
+
+    // Bar
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, barW, barH, 3) : ctx.rect(x, y, barW, barH);
+    ctx.fill();
+
+    // Value label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${(val*100).toFixed(1)}%`, x+barW/2, y-4);
+
+    // X label
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(`N${node}`, x+barW/2, padT+chartH+14);
+
+    // Position hint
+    if (data.positions[node]) {
+      ctx.fillStyle = '#555';
+      ctx.font = '7px sans-serif';
+      ctx.fillText(`(${data.positions[node][0]},${data.positions[node][1]})`, x+barW/2, padT+chartH+26);
+    }
+  });
+}
+
+// ── MISS HEATMAP (pure canvas) ────────────────────────────────────────────
+function drawHeatmap(data) {
+  const canvas = document.getElementById('heatCanvas');
+  const ctx = canvas.getContext('2d');
+  const {nodes, missMatrix} = data;
+  if (!nodes.length) return;
+
+  const n = nodes.length;
+  const W = Math.max(canvas.offsetWidth || 0, canvas.parentElement ? canvas.parentElement.offsetWidth - 28 : 0, 300);
+  const H = 300;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0,0,W,H);
+
+  const padL = 36, padT = 36, padR = 10, padB = 10;
+  const cellW = (W - padL - padR) / n;
+  const cellH = (H - padT - padB) / n;
+
+  // Find max for colour scaling
+  let maxVal = 1;
+  for (const src of nodes) for (const rec of nodes) {
+    const v = missMatrix[src]?.[rec] || 0;
+    if (v > maxVal) maxVal = v;
+  }
+
+  // Draw cells
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const src = nodes[i], rec = nodes[j];
+      const val = (i === j) ? -1 : (missMatrix[src]?.[rec] || 0);
+      const x = padL + j*cellW, y = padT + i*cellH;
+
+      if (val < 0) {
+        ctx.fillStyle = '#21262d';
+      } else {
+        const intensity = val / maxVal;
+        const r = Math.round(30 + intensity * 218);
+        const g = Math.round(10 + (1-intensity) * 100);
+        const b = Math.round(10 + (1-intensity) * 60);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+      }
+      ctx.fillRect(x, y, cellW-1, cellH-1);
+
+      // Value text
+      if (val > 0) {
+        ctx.fillStyle = val > maxVal*0.5 ? '#ffffff' : '#ffcccc';
+        ctx.font = `bold ${Math.min(cellW*0.45, 13)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(val, x+cellW/2, y+cellH/2);
+      } else if (val === 0) {
+        ctx.fillStyle = '#3fb95055';
+        ctx.font = `${Math.min(cellW*0.35, 10)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('0', x+cellW/2, y+cellH/2);
+      }
+    }
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = `${Math.min(cellW*0.4, 11)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < n; i++) {
+    // Top (receiver)
+    ctx.fillText(`N${nodes[i]}`, padL + i*cellW + cellW/2, padT/2);
+    // Left (source)
+    ctx.textAlign = 'right';
+    ctx.fillText(`N${nodes[i]}`, padL-4, padT + i*cellH + cellH/2);
+    ctx.textAlign = 'center';
+  }
+
+  // Axis titles
+  ctx.fillStyle = '#58a6ff';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Missed Receiver →', padL + (W-padL-padR)/2, 10);
+  ctx.save();
+  ctx.translate(10, padT + (H-padT-padB)/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('Source ↓', 0, 0);
+  ctx.restore();
+}
+
+// ── DISTANCE TABLE ────────────────────────────────────────────────────────
+function renderDistTable(data) {
+  const {nodes, distMatrix} = data;
+  if (!nodes.length) return;
+  let html = '<table><tr><th></th>';
+  for (const n of nodes) html += `<th>N${n}</th>`;
+  html += '</tr>';
+  for (const a of nodes) {
+    html += `<tr><td><strong>N${a}</strong></td>`;
+    for (const b of nodes) {
+      if (a === b) { html += '<td style="color:#555">—</td>'; continue; }
+      const d = distMatrix[a]?.[b];
+      if (d === null || d === undefined) { html += '<td style="color:#555">?</td>'; continue; }
+      const over = d > CFG.RADIO_M;
+      html += `<td style="color:${over?'#f85149':'#3fb950'};font-weight:${over?'600':'400'}">${Math.round(d)}m</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  document.getElementById('distTable').innerHTML = html;
+}
+
+// ── KPI ROW ───────────────────────────────────────────────────────────────
+function renderKPIs(data) {
+  const pdC = data.avgPD >= CFG.PD_TARGET ? 'green' : data.avgPD >= 0.90 ? 'yellow' : 'red';
+  const pexC = data.pexAll <= CFG.PEX_LIMIT ? 'green' : 'red';
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="metric"><div class="label">Avg P_D</div><div class="value ${pdC}">${(data.avgPD*100).toFixed(1)}%</div><div style="font-size:0.72em;color:#8b949e">Target ≥ ${(CFG.PD_TARGET*100).toFixed(0)}%</div></div>
+    <div class="metric"><div class="label">P_EX</div><div class="value ${pexC}">${(data.pexAll*100).toFixed(3)}%</div><div style="font-size:0.72em;color:#8b949e">Limit ≤ ${(CFG.PEX_LIMIT*100).toFixed(0)}%</div></div>
+    <div class="metric"><div class="label">Nodes</div><div class="value blue">${data.totalNodes}</div><div style="font-size:0.72em;color:#8b949e">Detected</div></div>
+    <div class="metric"><div class="label">Log Duration</div><div class="value blue">${data.logDuration.toFixed(1)}s</div><div style="font-size:0.72em;color:#8b949e">Simulation time</div></div>
+    <div class="metric"><div class="label">Taoi</div><div class="value blue">${CFG.TAOI_MS}ms</div><div style="font-size:0.72em;color:#8b949e">AoI threshold</div></div>
+    <div class="metric"><div class="label">Radio Range</div><div class="value blue">${CFG.RADIO_M}m</div><div style="font-size:0.72em;color:#8b949e">Max link distance</div></div>
+    <div class="metric"><div class="label">Tam (L=100m)</div><div class="value blue">${CFG.TAM_S}s</div><div style="font-size:0.72em;color:#8b949e">P_D warm-up excluded</div></div>
+    <div class="metric"><div class="label">Warm-up Pkts</div><div class="value yellow">${data.warmupPkts}</div><div style="font-size:0.72em;color:#8b949e">Excluded from P_D</div></div>
+  `;
+}
+
+// ── SOURCE TABLE ──────────────────────────────────────────────────────────
+function renderSrcTable(data) {
+  const tb = document.getElementById('srcTable');
+  while(tb.rows.length > 1) tb.deleteRow(1);
+  for (const src of data.nodes) {
+    const s = data.srcSummary[src];
+    if (!s) continue;
+    const pos = data.positions[src];
+    const pdPct = (s.avgPD*100).toFixed(1);
+    const pexPct = (s.pex*100).toFixed(3);
+    const pdB = s.avgPD>=CFG.PD_TARGET?'badge-ok':s.avgPD>=0.90?'badge-warn':'badge-fail';
+    const pdL = s.avgPD>=CFG.PD_TARGET?'PASS':s.avgPD>=0.90?'WARN':'FAIL';
+    const pexB = s.pex<=CFG.PEX_LIMIT?'badge-ok':'badge-fail';
+    const pexL = s.pex<=CFG.PEX_LIMIT?'PASS':'FAIL';
+    const mm = s.mostMissed;
+    const tr = tb.insertRow();
+    tr.innerHTML = `
+      <td><strong>Node ${src}</strong></td>
+      <td style="color:#8b949e">${pos?`(${pos[0]},${pos[1]})m`:'?'}</td>
+      <td>${s.txCount}</td>
+      <td style="color:${pdColor(s.avgPD)}">${pdPct}%</td>
+      <td><span class="badge ${pdB}">${pdL}</span></td>
+      <td style="color:${s.pex<=CFG.PEX_LIMIT?'#3fb950':'#f85149'}">${pexPct}%</td>
+      <td><span class="badge ${pexB}">${pexL}</span></td>
+      <td>${mm?`Node ${mm[0]}`:'—'}</td>
+      <td>${mm?mm[1]:'0'}</td>`;
+  }
+}
+
+
+// ── RENDER ALL ────────────────────────────────────────────────────────────
+function render(data) {
+  document.getElementById('dashboard').classList.remove('hidden');
+
+  const st = document.getElementById('status');
+  st.style.display = 'block';
+  if (!data.hasV2) {
+    st.className = 'status-warn';
+    st.innerHTML = `⚠️ v2 metric lines missing — ensure rdf-flood-v2.c is compiled and loaded in Cooja. KPIs computed from RX/TX lines only.`;
+  } else {
+    st.className = 'status-ok';
+    st.innerHTML = `✅ v2 firmware detected — DISSEM/EXCESS/STATS lines present. Full KPI measurement active.`;
+  }
+
+  renderKPIs(data);
+  // Defer canvas draws until layout is ready
+  // Double rAF ensures the newly-visible dashboard div has fully laid out
+  // before we read offsetWidth on canvases
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      drawTopology(data);
+      drawPDChart(data);
+      drawHeatmap(data);
+      renderDistTable(data);
+      renderSrcTable(data);
+    });
+  });
+}
+
+// ── FILE HANDLING ─────────────────────────────────────────────────────────
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = parseLog(e.target.result);
+      if (!data.nodes.length) {
+        alert('No RDF nodes found in this log. Make sure it is a Cooja loglistener output.');
+        return;
+      }
+      render(data);
+    } catch(err) {
+      alert('Parse error: ' + err.message);
+      console.error(err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// Redraw on resize
+window.addEventListener('resize', () => {
+  if (!document.getElementById('dashboard').classList.contains('hidden')) {
+    const data = window._lastData;
+if (data) { drawTopology(data); drawPDChart(data); drawHeatmap(data); }
+  }
+});
+const origRender = render;
+window.render = d => { window._lastData = d; origRender(d); };
+</script>
+
+<script>
+
+// ── Modal expand / download ───────────────────────────────────────────────
+let _modalTitle = '';
+function openCanvasModal(canvasId, title) {
+  const src = document.getElementById(canvasId);
+  if (!src) { alert('Chart not rendered yet — upload a log file first.'); return; }
+  _modalTitle = title;
+  document.getElementById('modalTitle').textContent = title;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '';
+  const img = document.createElement('img');
+  try { img.src = src.toDataURL('image/png'); }
+  catch(e) { alert('Cannot export this chart: ' + e.message); return; }
+  img.title = 'Click to zoom';
+  // Toggle zoom on click
+  img.addEventListener('click', function() {
+    this.style.maxHeight = this.style.maxHeight === 'none' ? '78vh' : 'none';
+    this.style.cursor = this.style.maxHeight === 'none' ? 'zoom-out' : 'zoom-in';
+  });
+  body.appendChild(img);
+  document.getElementById('expandModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('expandModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function downloadModal() {
+  const img = document.querySelector('#modalBody img');
+  if (!img) return;
+  const a = document.createElement('a');
+  a.href = img.src;
+  a.download = (_modalTitle||'chart').replace(/[^a-z0-9]/gi,'_') + '.png';
+  a.click();
+}
+
+function expandTable(tableId, title) {
+  const tbl = document.getElementById(tableId);
+  if (!tbl) return;
+  document.getElementById('modalTitle').textContent = title;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'overflow:auto;width:100%;max-height:78vh;';
+  wrap.innerHTML = tbl.outerHTML;
+  // Style the cloned table
+  wrap.querySelector('table').style.cssText = 'width:100%;border-collapse:collapse;font-size:0.9em;color:#e0e0e0';
+  body.appendChild(wrap);
+  document.getElementById('expandModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function dlCanvas(canvasId, title) {
+  const c = document.getElementById(canvasId);
+  if (!c) { alert('Chart not rendered yet.'); return; }
+  const a = document.createElement('a');
+  try { a.href = c.toDataURL('image/png'); }
+  catch(e) { alert('Cannot export: ' + e.message); return; }
+  a.download = (title||canvasId).replace(/[^a-z0-9]/gi,'_') + '.png';
+  a.click();
+}
+document.addEventListener('DOMContentLoaded', function() {
+  const m = document.getElementById('expandModal');
+  if (m) {
+    m.addEventListener('click', function(e) { if (e.target===this) closeModal(); });
+  }
+});
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+
+  function sendHeight() {
+    window.parent.postMessage({ iframeHeight: document.documentElement.scrollHeight }, '*');
+  }
+  window.addEventListener('load', sendHeight);
+  window.addEventListener('resize', sendHeight);
+</script>
+
+<div id="expandModal">
+  <div class="modal-box">
+    <div class="modal-title" id="modalTitle"></div>
+    <button class="modal-close" onclick="closeModal()">✕ Close</button>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-dl"><button onclick="downloadModal()">⬇ Download PNG</button></div>
+  </div>
+</div>
+</body>
+</html>
