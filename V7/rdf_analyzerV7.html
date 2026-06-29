@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>RDF Flood v4 — Log Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#222;font-size:13px}
+header{background:linear-gradient(135deg,#01696f,#014f54);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px}
+header h1{font-size:20px;font-weight:700;letter-spacing:.5px}
+header span{font-size:12px;opacity:.8}
+.badge{background:rgba(255,255,255,.2);border-radius:12px;padding:2px 10px;font-size:11px}
+
+/* Upload zone */
+#upload-zone{margin:18px 24px;background:#fff;border:2px dashed #01696f;border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:background .2s}
+#upload-zone:hover,#upload-zone.drag{background:#e6f7f7}
+#upload-zone input{display:none}
+#upload-zone p{color:#555;font-size:14px}
+#upload-zone .hint{font-size:11px;color:#999;margin-top:6px}
+
+/* Status bar */
+#status-bar{margin:0 24px 12px;background:#fff;border-radius:8px;padding:10px 16px;display:flex;gap:20px;flex-wrap:wrap;border-left:4px solid #01696f;font-size:12px}
+.stat-pill{display:flex;flex-direction:column;align-items:center}
+.stat-pill .val{font-size:18px;font-weight:700;color:#01696f}
+.stat-pill .lbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px}
+
+/* Tabs */
+.tabs{display:flex;gap:0;margin:0 24px;border-bottom:2px solid #dde3ea}
+.tab-btn{padding:9px 20px;cursor:pointer;border:none;background:none;font-size:13px;color:#555;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s}
+.tab-btn.active{color:#01696f;font-weight:700;border-bottom-color:#01696f}
+.tab-btn:hover{color:#01696f}
+
+/* Panels */
+.panel{display:none;margin:16px 24px}
+.panel.active{display:block}
+
+/* Cards */
+.card{background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.card h3{font-size:14px;font-weight:700;color:#01696f;margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:6px}
+
+/* Tables */
+.tbl-wrap{overflow-x:auto;max-height:480px;overflow-y:auto;border-radius:6px;border:1px solid #e5e7eb}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+thead{position:sticky;top:0;z-index:10}
+th{background:#f0f4f8;padding:7px 10px;text-align:left;border-bottom:2px solid #dde3ea;border-right:1px solid #e5e7eb;white-space:nowrap;cursor:pointer;user-select:none;box-shadow:0 2px 0 #dde3ea}
+th:last-child{border-right:none}
+th:hover{background:#e0eaf4}
+th .sort-arrow{font-size:10px;margin-left:4px;opacity:.5}
+td{padding:6px 10px;border-bottom:1px solid #f0f0f0;border-right:1px solid #f5f5f5;white-space:nowrap}
+td:last-child{border-right:none}
+tr:hover td{background:#f7fbff}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* Fate colours */
+.fate-delivered{color:#1b7a34;font-weight:600}
+.fate-updated{color:#b45309;font-weight:600}
+.fate-stale{color:#7c3aed;font-weight:600}
+.fate-suppressed{color:#b91c1c;font-weight:600}
+.fate-rdf{color:#0369a1;font-weight:700}
+
+/* Heatmap */
+.heatmap-wrap{overflow-x:auto}
+.heatmap-table td,.heatmap-table th{padding:5px 8px;text-align:center;min-width:52px;font-size:11px}
+.heatmap-table th{background:#f0f4f8}
+
+/* Filter row */
+.filter-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.filter-row input,.filter-row select{padding:5px 10px;border:1px solid #ccc;border-radius:6px;font-size:12px}
+.filter-row label{font-size:12px;color:#555}
+.btn{padding:5px 14px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600}
+.btn-primary{background:#01696f;color:#fff}
+.btn-primary:hover{background:#018a91}
+.btn-secondary{background:#e5e7eb;color:#333}
+.btn-secondary:hover{background:#d1d5db}
+
+/* Chart containers */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:900px){.chart-grid,.chart-grid-3{grid-template-columns:1fr}}
+.chart-box{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.chart-box h4{font-size:12px;font-weight:700;color:#444;margin-bottom:10px;text-align:center}
+canvas{max-height:260px}
+
+/* Legend pills */
+.legend-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.legend-pill{display:flex;align-items:center;gap:5px;font-size:11px;background:#f5f5f5;border-radius:12px;padding:3px 10px}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* Code path box */
+.code-path{background:#1e1e2e;color:#cdd6f4;border-radius:8px;padding:14px;font-family:'Courier New',monospace;font-size:11px;line-height:1.7;overflow-x:auto}
+.code-path .kw{color:#cba6f7}
+.code-path .cm{color:#6c7086;font-style:italic}
+.code-path .str{color:#a6e3a1}
+.code-path .hl{background:#313244;border-left:3px solid #89b4fa;padding-left:6px}
+
+/* Tooltip */
+[data-tip]{position:relative;cursor:help}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:120%;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:5px 10px;border-radius:6px;font-size:11px;white-space:nowrap;z-index:99;pointer-events:none}
+
+/* Progress bar */
+.pbar-wrap{background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;min-width:80px}
+.pbar{height:100%;border-radius:4px;transition:width .3s}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-track{background:#f0f0f0}
+::-webkit-scrollbar-thumb{background:#c0c0c0;border-radius:4px}
+
+#loading{display:none;text-align:center;padding:40px;color:#01696f;font-size:15px}
+.spinner{display:inline-block;width:28px;height:28px;border:3px solid #cce;border-top-color:#01696f;border-radius:50%;animation:spin .7s linear infinite;margin-right:10px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🌊 RDF Flood v4 — Log Analyzer</h1>
+    <span>Packet Fate Analysis · CBF/RDF Mechanics · Per-Node Statistics</span>
+  </div>
+  <span class="badge" id="log-type-badge">No log loaded</span>
+</header>
+
+<!-- Upload -->
+<div id="upload-zone" onclick="document.getElementById('file-input').click()"
+     ondragover="event.preventDefault();this.classList.add('drag')"
+     ondragleave="this.classList.remove('drag')"
+     ondrop="handleDrop(event)">
+  <input type="file" id="file-input" accept=".txt,.log" onchange="loadFile(this.files[0])"/>
+  <p>📂 Drop <b>loglistener2.txt</b> here or click to browse</p>
+  <p class="hint">Supports Cooja loglistener format · rdf-flood-v4 log lines</p>
+</div>
+
+<div id="loading"><span class="spinner"></span>Parsing log file…</div>
+
+<!-- Status bar -->
+<div id="status-bar" style="display:none">
+  <div class="stat-pill"><span class="val" id="s-lines">0</span><span class="lbl">Log Lines</span></div>
+  <div class="stat-pill"><span class="val" id="s-nodes">0</span><span class="lbl">Nodes</span></div>
+  <div class="stat-pill"><span class="val" id="s-pkts">0</span><span class="lbl">Unique (src,seq)</span></div>
+  <div class="stat-pill"><span class="val" id="s-rx">0</span><span class="lbl">RX Events</span></div>
+  <div class="stat-pill"><span class="val" id="s-suppress">0</span><span class="lbl">CBF Suppressed</span></div>
+  <div class="stat-pill"><span class="val" id="s-update">0</span><span class="lbl">Pending Updates</span></div>
+  <div class="stat-pill"><span class="val" id="s-stale">0</span><span class="lbl">Stale Drops</span></div>
+  <div class="stat-pill"><span class="val" id="s-fwd">0</span><span class="lbl">Forwards</span></div>
+  <div class="stat-pill" style="border-left:3px solid #b91c1c;padding-left:10px"><span class="val" id="s-naive-rate" style="color:#b91c1c">—</span><span class="lbl">Avg Delivery %</span></div>
+  <div class="stat-pill" style="border-left:3px solid #0369a1;padding-left:10px"><span class="val" id="s-rdf-rate" style="color:#0369a1">—</span><span class="lbl">⭐ Avg Delivery_RDF %</span></div>
+  <div class="stat-pill"><span class="val" id="s-duration">0s</span><span class="lbl">Duration</span></div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" id="main-tabs" style="display:none">
+  <button class="tab-btn active" onclick="showTab('fate')">📊 Packet Fate Table</button>
+  <button class="tab-btn" onclick="showTab('charts')">📈 Charts</button>
+  <button class="tab-btn" onclick="showTab('heatmap')">🔥 Per-Node Heatmap</button>
+  <button class="tab-btn" onclick="showTab('pdr')">📡 PDR &amp; Stats</button>
+  <button class="tab-btn" onclick="showTab('kpi')">🎯 P_D &amp; P_EX KPIs</button>
+  <button class="tab-btn" onclick="showTab('events')">📋 Event Log</button>
+  <button class="tab-btn" onclick="showTab('codepath')">🔬 Code Path Guide</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 1: PACKET FATE TABLE                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel active" id="panel-fate">
+  <div class="card">
+    <h3>Packet Fate Summary — Per Receiver Node (counts across ALL sources)</h3>
+    <div class="legend-row">
+      <div class="legend-pill"><div class="legend-dot" style="background:#1b7a34"></div><b>Delivered</b> — RX is_new=1, packet accepted fresh</div>
+      <div class="legend-pill"><div class="legend-dot" style="background:#b45309"></div><b>Pending Updated</b> — PENDING_UPDATE: fresher seq replaced old while timer ran — node got <i>newer</i> version, NOT a loss</div>
+      <div class="legend-pill"><div class="legend-dot" style="background:#7c3aed"></div><b>Stale Drop</b> — PENDING_DROP_STALE: arrived seq &lt; buffered seq — only TRUE loss</div>
+      <div class="legend-pill"><div class="legend-dot" style="background:#b91c1c"></div><b>CBF Suppressed</b> — CBF_SUPPRESS: node already had this seq, duplicate cancelled forward — node WAS informed, NOT a loss</div>
+      <div class="legend-pill"><div class="legend-dot" style="background:#0369a1"></div><b>⭐ Delivery_RDF %</b> = (Delivered + CBF_Suppressed) / Total Arrivals — suppressed means node was already informed. Updated is NOT added (already counted in Delivered)</div>
+    </div>
+    <div class="filter-row">
+      <label>Filter node:</label>
+      <select id="fate-node-filter" onchange="renderFateTable()">
+        <option value="all">All nodes</option>
+      </select>
+      <label>Filter source:</label>
+      <select id="fate-src-filter" onchange="renderFateTable()">
+        <option value="all">All sources</option>
+      </select>
+      <button class="btn btn-secondary" onclick="exportFateCSV()">⬇ Export CSV</button>
+    </div>
+    <div class="tbl-wrap">
+      <table id="fate-table">
+        <thead>
+          <tr>
+            <th onclick="sortFate('node')">Receiver Node <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('src')">Source Node <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('delivered')" data-tip="RX is_new=1 — packet reached this node fresh and was accepted">Delivered <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('updated')" data-tip="PENDING_UPDATE: fresher seq replaced buffered seq while timer ran — node got newer version, not a loss">Pending Updated <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('stale')" data-tip="PENDING_DROP_STALE: arrived seq was LESS than buffered seq — truly stale, dropped">Stale Drop <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('suppressed')" data-tip="CBF_SUPPRESS: arriving_hop > pending_hop → farther node forwarded → timer cancelled">CBF Suppressed <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('hop_ignored')" data-tip="CBF_HOP_IGNORE: arriving_hop ≤ pending_hop → we have equal/better copy → timer kept running">CBF Hop Ignored <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('total_arrive')">Total Arrivals <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('eff')" data-tip="Delivered / Total Arrivals — counts duplicates in denominator, so looks low in flooding">Delivery Rate % <span class="sort-arrow">↕</span></th>
+            <th onclick="sortFate('rdf_eff')" data-tip="(Delivered + CBF_Suppressed) / Total Arrivals. Suppressed = node already had the packet = informed. PENDING_UPDATE is NOT added — it fires on the same RX event already counted in Delivered, so adding it would double-count.">⭐ Delivery_RDF % <span class="sort-arrow">↕</span></th>
+            <th>RDF Bar</th>
+          </tr>
+        </thead>
+        <tbody id="fate-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Node Totals (summed across all sources)</h3>
+    <div class="tbl-wrap">
+      <table id="fate-totals-table">
+        <thead>
+          <tr>
+            <th>Node</th>
+            <th data-tip="Sum of all RX is_new=1 events at this node">Total Delivered</th>
+            <th data-tip="Sum of all PENDING_UPDATE events at this node">Total Pending Updated</th>
+            <th data-tip="Sum of all PENDING_DROP_STALE events at this node">Total Stale Drops</th>
+            <th data-tip="Sum of all CBF_SUPPRESS events (CBF wait: hop > pending → cancelled)">Total CBF Suppressed</th>
+            <th data-tip="Sum of all CBF_HOP_IGNORE events (CBF wait: hop ≤ pending → kept)">Total CBF Hop Ignored</th>
+            <th data-tip="Sum of all RDF_SUPPRESS events (RDF decay wait: hop > pending → cancelled)">Total RDF Suppressed</th>
+            <th data-tip="Sum of all RDF_HOP_IGNORE events (RDF decay wait: hop ≤ pending → kept)">Total RDF Hop Ignored</th>
+            <th>Total Arrivals</th>
+            <th>Own TX</th>
+            <th>Forwards</th>
+            <th data-tip="Delivered / Total Arrivals — naive rate, low because flooding duplicates inflate denominator">Delivery Rate %</th>
+            <th data-tip="(Delivered + CBF_Suppressed) / Total Arrivals — PENDING_UPDATE not added (already counted in Delivered). Only stale drops = true loss.">⭐ Delivery_RDF %</th>
+          </tr>
+        </thead>
+        <tbody id="fate-totals-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 2: CHARTS                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-charts">
+  <div class="chart-grid">
+    <div class="chart-box">
+      <h4>Packet Fate Distribution per Node (Stacked Bar)</h4>
+      <canvas id="chart-fate-stacked"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>Overall Fate Breakdown (Pie)</h4>
+      <canvas id="chart-fate-pie"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>CBF Suppressed vs Pending Updated per Node</h4>
+      <canvas id="chart-suppress-update"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>Delivery Rate % vs ⭐ Delivery_RDF % per Node</h4>
+      <canvas id="chart-delivery-rate"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>Forwards per Node (by source)</h4>
+      <canvas id="chart-fwd"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>Arrivals over Time (all nodes)</h4>
+      <canvas id="chart-timeline"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 3: HEATMAP                                                     -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-heatmap">
+  <div class="card">
+    <h3>Packet Fate Heatmap — Receiver × Source</h3>
+    <div class="filter-row">
+      <label>Metric:</label>
+      <select id="heatmap-metric" onchange="renderHeatmap()">
+        <option value="delivered">Delivered</option>
+        <option value="updated">Pending Updated</option>
+        <option value="stale">Stale Drop</option>
+        <option value="suppressed">CBF Suppressed</option>
+        <option value="total_arrive">Total Arrivals</option>
+        <option value="eff">Delivery Rate %</option>
+        <option value="rdf_eff">⭐ Delivery_RDF %</option>
+      </select>
+    </div>
+    <div class="heatmap-wrap" id="heatmap-container"></div>
+    <p style="font-size:11px;color:#888;margin-top:8px">Rows = Receiver node · Columns = Source node · Darker = higher value</p>
+  </div>
+
+  <div class="card">
+    <h3>CBF Suppress Heatmap — Which node suppresses which source most?</h3>
+    <div class="heatmap-wrap" id="heatmap-suppress"></div>
+  </div>
+
+  <div class="card">
+    <h3>Pending Update Heatmap — Which node updates which source most?</h3>
+    <div class="heatmap-wrap" id="heatmap-update"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 4: PDR & STATS                                                 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-pdr">
+  <div class="card">
+    <h3>PDR Summary — from STATS log lines (periodic 10s snapshots)</h3>
+    <div class="tbl-wrap">
+      <table id="pdr-table">
+        <thead>
+          <tr>
+            <th>Node</th><th>Source</th>
+            <th>Recv</th><th>Expected</th><th>PDR %</th>
+            <th>Fwd Count</th><th>PDR Bar</th>
+          </tr>
+        </thead>
+        <tbody id="pdr-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="chart-grid">
+    <div class="chart-box">
+      <h4>PDR % per (Node, Source) — Last STATS snapshot</h4>
+      <canvas id="chart-pdr-bar"></canvas>
+    </div>
+    <div class="chart-box">
+      <h4>Own TX count per node</h4>
+      <canvas id="chart-own-tx"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 5: P_D & P_EX KPIs                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-kpi">
+  <div class="card"><p style="color:#888">Upload a log file to compute KPIs.</p></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 6: EVENT LOG                                                   -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-events">
+  <div class="card">
+    <h3>Filtered Event Log</h3>
+    <div class="filter-row">
+      <input type="text" id="ev-search" placeholder="Search…" oninput="renderEventLog()" style="width:200px"/>
+      <select id="ev-node" onchange="renderEventLog()">
+        <option value="all">All nodes</option>
+      </select>
+      <select id="ev-type" onchange="renderEventLog()">
+        <option value="all">All event types</option>
+        <option value="ARRIVE">ARRIVE</option>
+        <option value="RX">RX</option>
+        <option value="CBF_SUPPRESS">CBF_SUPPRESS (CBF wait: hop &gt; pending → cancelled)</option>
+        <option value="CBF_HOP_IGNORE">CBF_HOP_IGNORE (CBF wait: hop ≤ pending → kept)</option>
+        <option value="RDF_SUPPRESS">RDF_SUPPRESS (RDF decay: hop &gt; pending → cancelled)</option>
+        <option value="RDF_HOP_IGNORE">RDF_HOP_IGNORE (RDF decay: hop ≤ pending → kept)</option>
+        <option value="PENDING_UPDATE">PENDING_UPDATE</option>
+        <option value="PENDING_DROP_STALE">PENDING_DROP_STALE</option>
+        <option value="FWD">FWD</option>
+        <option value="TX">TX</option>
+        <option value="DISSEM">DISSEM</option>
+        <option value="SUPPRESS_MISS">SUPPRESS_MISS</option>
+        <option value="CBF_TIMER">CBF_TIMER</option>
+        <option value="STATS">STATS</option>
+      </select>
+      <input type="number" id="ev-src" placeholder="src=" min="1" max="50" oninput="renderEventLog()" style="width:80px"/>
+      <label>src filter</label>
+      <button class="btn btn-secondary" onclick="clearEvFilters()">Clear</button>
+      <span id="ev-count" style="font-size:11px;color:#888"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:520px">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Node</th><th>Event</th><th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="ev-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 6: CODE PATH GUIDE                                             -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-codepath">
+  <div class="card">
+    <h3>RDF v4 — Complete Log Line → Code Path Mapping</h3>
+    <p style="font-size:12px;color:#555;margin-bottom:14px">
+      Every log line emitted by rdf-flood-v4.c mapped to its exact C code location and what it means for packet fate analysis.
+    </p>
+
+    <div class="card" style="border-left:4px solid #1b7a34">
+      <h3 style="color:#1b7a34">✅ DELIVERED path — packet reaches node fresh</h3>
+      <div class="code-path">
+<span class="cm">// udp_rx_callback() — first receive of (src, seq)</span>
+<span class="hl">ARRIVE src=X seq=N hop=H sender_xy=(...) <b>is_new=1</b></span>   <span class="cm">← is_new=1 means seen[src][seq%256]==0</span>
+seen[src][seq%256] = 1;  recv_count[src]++;
+<span class="hl">RX src=X seq=N hop=H src_xy=(...) sender_xy=(...) my_xy=(...)</span>  <span class="cm">← logged only for is_new=1</span>
+<span class="hl">PDR src=X recv=R/E = P%</span>
+<span class="hl">DISSEM src=X seq=N node=ME recv_by_me=R last_seq=L</span>
+<span class="cm">// Then pending buffer check:</span>
+<span class="kw">if</span>(st->timer_active && st->has_pending) {
+  <span class="kw">if</span>(st->pending_seq == seq) → CBF_SUPPRESS (Case A)
+  <span class="kw">if</span>(seq > st->pending_seq)  → PENDING_UPDATE (Case B)
+  <span class="kw">else</span>                        → PENDING_DROP_STALE (Case C)
+}
+<span class="cm">// No pending conflict:</span>
+<span class="hl">SUPPRESS_MISS src=X seq=N timer_active=0 has_pending=0 ...</span>  <span class="cm">← normal path</span>
+<span class="hl">CBF_TIMER src=X seq=N hop=H ... dist_wait_ticks=D jitter_ticks=J total_ticks=T</span>
+<span class="cm">// Timer fires → rdf_forward_callback():</span>
+<span class="hl">FWD src=X seq=N hop=H+1 sender_xy=(...)</span>
+      </div>
+      <p style="font-size:11px;color:#555;margin-top:8px">
+        <b>Count rule:</b> Count = number of <code>RX</code> lines with <code>is_new=1</code> at this node for this source.
+        These are packets that arrived fresh, were accepted, and scheduled for forwarding.
+      </p>
+    </div>
+
+    <div class="card" style="border-left:4px solid #b45309;margin-top:12px">
+      <h3 style="color:#b45309">🔄 PENDING UPDATED — fresher seq replaces buffered seq</h3>
+      <div class="code-path">
+<span class="cm">// udp_rx_callback() — is_new=1, but timer already running for this src</span>
+<span class="kw">if</span>(st->timer_active && st->has_pending) {
+  <span class="kw">if</span>(seq > st->pending_seq) {   <span class="cm">// Case B (FIX-5)</span>
+    <span class="hl">PENDING_UPDATE src=X old_seq=OLD new_seq=NEW timer_kept=1</span>
+    st->pending_msg = msg;   <span class="cm">// replace buffered packet</span>
+    st->pending_seq = seq;   <span class="cm">// update seq</span>
+    <span class="kw">return</span>;                  <span class="cm">// timer NOT reset — keeps running</span>
+  }
+}
+      </div>
+      <p style="font-size:11px;color:#555;margin-top:8px">
+        <b>What this means:</b> Node had seq=OLD waiting in its CBF buffer. Before the timer fired,
+        seq=NEW (fresher) arrived. The buffer is silently updated to NEW. When the timer eventually fires,
+        it will forward NEW instead of OLD. OLD is effectively <b>lost</b> — it will never be forwarded.
+        This is intentional: RDF prefers freshness over completeness.
+        <br><b>Count rule:</b> Count = number of <code>PENDING_UPDATE</code> lines at this node for this source.
+      </p>
+    </div>
+
+    <div class="card" style="border-left:4px solid #7c3aed;margin-top:12px">
+      <h3 style="color:#7c3aed">🗑 STALE DROP — arrived seq is older than buffered seq</h3>
+      <div class="code-path">
+<span class="cm">// udp_rx_callback() — is_new=1, timer running, arrived seq < pending_seq</span>
+<span class="kw">if</span>(st->timer_active && st->has_pending) {
+  <span class="kw">if</span>(seq > st->pending_seq) → PENDING_UPDATE
+  <span class="cm">// else: seq < pending_seq → Case C (FIX-5)</span>
+  <span class="hl">PENDING_DROP_STALE src=X buffered_seq=B stale_seq=S</span>
+  <span class="kw">return</span>;   <span class="cm">// drop silently, keep existing pending</span>
+}
+      </div>
+      <p style="font-size:11px;color:#555;margin-top:8px">
+        <b>What this means:</b> Node already has a <i>newer</i> packet buffered (buffered_seq > stale_seq).
+        The arriving packet is older — it is dropped immediately without touching the timer or buffer.
+        This is <b>NOT the same as CBF_SUPPRESS</b>: suppress cancels a pending forward; stale drop
+        just discards the incoming packet while keeping the existing pending forward intact.
+        <br><b>Count rule:</b> Count = number of <code>PENDING_DROP_STALE</code> lines at this node for this source.
+      </p>
+    </div>
+
+    <div class="card" style="border-left:4px solid #b91c1c;margin-top:12px">
+      <h3 style="color:#b91c1c">🚫 CBF SUPPRESSED — duplicate cancels pending forward</h3>
+      <div class="code-path">
+<span class="cm">// Two paths lead to CBF_SUPPRESS:</span>
+
+<span class="cm">// Path 1: DUPLICATE arrival (is_new=0) → rdf_cancel_pending()</span>
+<span class="kw">if</span>(!is_new) {
+  rdf_cancel_pending(src, seq);   <span class="cm">// if timer active AND pending_seq==seq</span>
+  <span class="hl">CBF_SUPPRESS src=X seq=N</span>        <span class="cm">← emitted inside rdf_cancel_pending()</span>
+  <span class="kw">return</span>;
+}
+
+<span class="cm">// Path 2: FIRST receive (is_new=1), pending_seq==seq (Case A)</span>
+<span class="kw">if</span>(st->timer_active && st->has_pending && st->pending_seq == seq) {
+  rdf_cancel_pending(src, seq);
+  <span class="hl">CBF_SUPPRESS src=X seq=N</span>
+  <span class="kw">return</span>;
+}
+      </div>
+      <p style="font-size:11px;color:#555;margin-top:8px">
+        <b>What this means:</b> The node had seq=N buffered and was about to forward it.
+        Another copy of seq=N arrived (either a duplicate or a first-receive of same seq from different path).
+        The CBF timer is <b>cancelled</b> — this node will NOT forward seq=N.
+        This is the core CBF mechanism: nodes closer to the source suppress nodes farther away.
+        <br><b>Count rule:</b> Count = number of <code>CBF_SUPPRESS</code> lines at this node for this source.
+      </p>
+    </div>
+
+    <div class="card" style="border-left:4px solid #0369a1;margin-top:12px">
+      <h3 style="color:#0369a1">ℹ️ SUPPRESS_MISS — normal first-receive, no pending conflict</h3>
+      <div class="code-path">
+<span class="cm">// Logged when is_new=1 AND no active pending timer for this src</span>
+<span class="cm">// (or timer active but pending_seq != seq — handled by Cases A/B/C above)</span>
+<span class="hl">SUPPRESS_MISS src=X seq=N timer_active=0 has_pending=0 pending_seq=0</span>
+<span class="cm">// This is NOT a problem — it just means no suppression opportunity existed</span>
+<span class="cm">// Proceeds to rdf_handle_new_packet() → CBF_TIMER → eventual FWD</span>
+      </div>
+      <p style="font-size:11px;color:#555;margin-top:8px">
+        <b>What this means:</b> Normal first-receive with no pending conflict.
+        The name is misleading — it means "we checked for suppress opportunity and missed (none existed)".
+        This is the <b>happy path</b> for a fresh packet with no competing pending forward.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// DATA STRUCTURES
+// ═══════════════════════════════════════════════════════════════════════
+let G = {
+  lines: 0,
+  nodes: new Set(),
+  sources: new Set(),
+  // fate[node][src] = {delivered, updated, stale, suppressed, total_arrive}
+  fate: {},
+  // fwd[node][src] = count
+  fwd: {},
+  // own_tx[node] = count
+  own_tx: {},
+  // pdr_stats: last STATS line per (node,src)
+  pdr_stats: {},
+  // own_tx_stats[node]
+  own_tx_stats: {},
+  // raw events for event log
+  events: [],
+  // timeline: [{t, node, type}]
+  timeline: [],
+  duration: 0,
+  // KPI data
+  // txOrigin[(src,seq)] = t  — loglistener timestamp of TX line
+  txOrigin: {},
+  // rxEvents[(src,seq)][recvNode] = [{t, hop}]
+  rxEvents: {},
+  // Paper KPIs
+  kpi: null,
+};
+
+let fateSort = {col:'node', asc:true};
+let evPage = 0;
+const EV_PAGE_SIZE = 500;
+
+// ═══════════════════════════════════════════════════════════════════════
+// FILE LOADING
+// ═══════════════════════════════════════════════════════════════════════
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+}
+
+function loadFile(file) {
+  if (!file) return;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('upload-zone').style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = e => {
+    setTimeout(() => {
+      try {
+        parseLog(e.target.result);
+      } catch(err) {
+        console.error('parseLog error:', err);
+        alert('Error parsing log file:\n' + err.message);
+      }
+      document.getElementById('loading').style.display = 'none';
+    }, 50);
+  };
+  reader.readAsText(file);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PARSER
+// ═══════════════════════════════════════════════════════════════════════
+function parseTime(ts) {
+  // "MM:SS.mmm"
+  const [ms, rest] = ts.split(':');
+  return parseInt(ms) * 60 + parseFloat(rest);
+}
+
+function parseLog(text) {
+  // Reset
+  G = {
+    lines:0, nodes:new Set(), sources:new Set(),
+    fate:{}, fwd:{}, own_tx:{}, pdr_stats:{}, own_tx_stats:{},
+    events:[], timeline:[], duration:0,
+    // KPI data — must be initialised here so computeKPIs never sees undefined
+    txOrigin: {},   // "src,seq" -> t
+    rxEvents: {},   // "src,seq" -> {nodeId: [{t,hop}]}
+    kpi: null,
+  };
+
+  const lines = text.split('\n');
+  G.lines = lines.length;
+
+  // Regex patterns
+  const LINE_RE = /^(\d{2}:\d{2}\.\d{3})[\t ]+ID:(\d+)[\t ]+\[INFO: RDF\s*\]\s+(.+)$/;
+
+  let maxT = 0;
+
+  for (const raw of lines) {
+    const m = LINE_RE.exec(raw.trim());
+    if (!m) continue;
+    const t = parseTime(m[1]);
+    const node = parseInt(m[2]);
+    const msg = m[3].trim();
+    if (t > maxT) maxT = t;
+
+    G.nodes.add(node);
+    if (!G.fate[node]) G.fate[node] = {};
+    if (!G.fwd[node])  G.fwd[node]  = {};
+    if (!G.own_tx[node]) G.own_tx[node] = 0;
+
+    const firstWord = msg.split(' ')[0];
+
+    // Store raw event
+    G.events.push({t, node, type: firstWord, msg});
+
+    // ── ARRIVE ──────────────────────────────────────────────────────
+    if (firstWord === 'ARRIVE') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      const isNew = parseInt((msg.match(/is_new=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        G.fate[node][src].total_arrive++;
+        if (isNew === 1) {
+          // delivered counted via RX below
+        }
+        G.timeline.push({t, node, type:'ARRIVE'});
+      }
+    }
+
+    // ── RX (is_new=1 confirmed delivery) ────────────────────────────
+    else if (firstWord === 'RX') {
+      const srcM  = msg.match(/src=(\d+)/);
+      const seqM  = msg.match(/seq=(\d+)/);
+      const hopM  = msg.match(/hop=(\d+)/);
+      const src   = srcM ? parseInt(srcM[1]) : NaN;
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        G.fate[node][src].delivered++;
+      }
+      // Also store raw RX event for AoI / P_EX KPI computation
+      if (srcM && seqM) {
+        const key = `${srcM[1]},${seqM[1]}`;
+        const hop = hopM ? parseInt(hopM[1]) : -1;
+        if (!G.rxEvents[key]) G.rxEvents[key] = {};
+        if (!G.rxEvents[key][node]) G.rxEvents[key][node] = [];
+        G.rxEvents[key][node].push({t, hop});
+      }
+    }
+
+    // ── CBF_SUPPRESS ────────────────────────────────────────────────
+    // "CBF_SUPPRESS src=X seq=N arriving_hop=A pending_hop=P"
+    // same seq, arriving_hop > pending_hop during CBF wait → cancelled
+    else if (firstWord === 'CBF_SUPPRESS') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        G.fate[node][src].suppressed++;
+      }
+    }
+
+    // ── RDF_SUPPRESS ────────────────────────────────────────────────
+    // "RDF_SUPPRESS src=X seq=N arriving_hop=A pending_hop=P period=P"
+    // same seq, arriving_hop > pending_hop during RDF decay wait → cancelled
+    else if (firstWord === 'RDF_SUPPRESS') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        if (!G.fate[node][src].rdf_suppressed) G.fate[node][src].rdf_suppressed = 0;
+        G.fate[node][src].rdf_suppressed++;
+      }
+    }
+
+    // ── CBF_HOP_IGNORE ──────────────────────────────────────────────
+    // same seq, arriving_hop <= pending_hop during CBF wait → kept
+    else if (firstWord === 'CBF_HOP_IGNORE') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        if (!G.fate[node][src].hop_ignored) G.fate[node][src].hop_ignored = 0;
+        G.fate[node][src].hop_ignored++;
+      }
+    }
+
+    // ── RDF_HOP_IGNORE ──────────────────────────────────────────────
+    // same seq, arriving_hop <= pending_hop during RDF decay wait → kept
+    else if (firstWord === 'RDF_HOP_IGNORE') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        if (!G.fate[node][src].rdf_hop_ignored) G.fate[node][src].rdf_hop_ignored = 0;
+        G.fate[node][src].rdf_hop_ignored++;
+      }
+    }
+
+    // ── PENDING_UPDATE ──────────────────────────────────────────────
+    else if (firstWord === 'PENDING_UPDATE') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        G.fate[node][src].updated++;
+      }
+    }
+
+    // ── PENDING_DROP_STALE ──────────────────────────────────────────
+    else if (firstWord === 'PENDING_DROP_STALE') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        ensureFate(node, src);
+        G.fate[node][src].stale++;
+      }
+    }
+
+    // ── FWD ─────────────────────────────────────────────────────────
+    else if (firstWord === 'FWD') {
+      const src = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+      if (!isNaN(src)) {
+        G.sources.add(src);
+        if (!G.fwd[node][src]) G.fwd[node][src] = 0;
+        G.fwd[node][src]++;
+      }
+    }
+
+    // ── TX_ORIGIN removed — TX line timestamp IS the origin time ────────
+    // own_tx counted from TX lines instead
+    else if (firstWord === 'TX') {
+      G.own_tx[node]++;
+      // Track TX origin time for AoI / P_EX computation
+      const seqM = msg.match(/seq=(\d+)/);
+      if (seqM) {
+        const key = `${node},${seqM[1]}`;
+        if (!(key in G.txOrigin)) G.txOrigin[key] = t;
+      }
+    }
+
+    // ── STATS ───────────────────────────────────────────────────────
+    else if (firstWord === 'STATS') {
+      if (msg.includes('own_tx')) {
+        const ot = parseInt((msg.match(/own_tx=(\d+)/) || [])[1]);
+        if (!isNaN(ot)) G.own_tx_stats[node] = ot;
+      } else {
+        const src  = parseInt((msg.match(/src=(\d+)/) || [])[1]);
+        const recv = parseInt((msg.match(/recv=(\d+)/) || [])[1]);
+        const exp  = parseInt((msg.match(/exp=(\d+)/) || [])[1]);
+        const fwd  = parseInt((msg.match(/fwd=(\d+)/) || [])[1]);
+        const pdr  = (msg.match(/pdr=([\d.]+)%/) || [])[1];
+        if (!isNaN(src)) {
+          const key = `${node}_${src}`;
+          G.pdr_stats[key] = {node, src, recv, exp, fwd, pdr: parseFloat(pdr)};
+        }
+      }
+    }
+  }
+
+  G.duration = maxT;
+
+  // ── Compute paper-correct KPIs ────────────────────────────────────────
+  G.kpi = computeKPIs();
+
+  // Populate UI
+  populateFilters();
+  updateStatusBar();
+  renderFateTable();
+  renderFateTotals();
+  renderCharts();
+  renderHeatmap();
+  renderSuppressHeatmap();
+  renderUpdateHeatmap();
+  renderPDR();
+  renderEventLog();
+  renderKPIPanel();
+
+  document.getElementById('status-bar').style.display = 'flex';
+  document.getElementById('main-tabs').style.display = 'flex';
+  document.getElementById('log-type-badge').textContent =
+    `${[...G.nodes].length} nodes · ${G.lines.toLocaleString()} lines`;
+}
+
+function ensureFate(node, src) {
+  if (!G.fate[node][src])
+    G.fate[node][src] = {
+      delivered:0, updated:0, stale:0,
+      suppressed:0, hop_ignored:0,
+      rdf_suppressed:0, rdf_hop_ignored:0,
+      total_arrive:0
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PAPER-CORRECT KPI COMPUTATION
+// ═══════════════════════════════════════════════════════════════════════
+const TAOI_MS = 1125.0;  // T_AOI threshold ms = R_detect/(2*v_max) = 5/(2*2.222)
+const TAM_S   = 45.05;   // TAM window s = L/v_max = 100/2.222
+
+function computeKPIs() {
+  const nodes = [...G.nodes].sort((a,b)=>a-b);
+  const N = nodes.length;
+  if (N < 2) return null;
+
+  // ── t_start: when last node first transmitted (warm-up end) ──────────
+  const firstTx = {};
+  for (const [key, t] of Object.entries(G.txOrigin)) {
+    const src = parseInt(key.split(',')[0]);
+    if (!(src in firstTx) || t < firstTx[src]) firstTx[src] = t;
+  }
+  const tStart = Object.keys(firstTx).length > 0
+    ? Math.max(...Object.values(firstTx)) : 0;
+
+  // ── Fast pre-build: single pass over rxEvents ────────────────────────
+  const heardFrom   = {};  // heardFrom[recvStr][srcStr]   = true (all hops, post-tStart)
+  const hop0Counts  = {};  // hop0Counts[recvStr][srcStr]  = count of hop=0 RX (full log)
+  const pexByNode   = {};
+  const pexBySrc    = {};
+  let pexTotal = 0, pexExcess = 0, pex1hopTotal = 0, pex1hopExcess = 0;
+  const aoiList = [];
+  let netMinAoi = Infinity, netMaxAoi = 0;
+
+  for (const [key, recvDict] of Object.entries(G.rxEvents)) {
+    const commaIdx = key.indexOf(',');
+    const srcStr   = key.substring(0, commaIdx);
+    const origin   = G.txOrigin[key];
+
+    for (const [recvStr, events] of Object.entries(recvDict)) {
+      // Paper P_D: binary heard flag (post-tStart, all hops)
+      if (origin === undefined || origin >= tStart) {
+        if (!heardFrom[recvStr]) heardFrom[recvStr] = {};
+        heardFrom[recvStr][srcStr] = true;
+      }
+
+      // hop=0 counts (full log, for K_i and W(i,src))
+      if (!hop0Counts[recvStr]) hop0Counts[recvStr] = {};
+      for (const {t: rxT, hop} of events) {
+        if (hop === 0) {
+          hop0Counts[recvStr][srcStr] = (hop0Counts[recvStr][srcStr] || 0) + 1;
+        }
+      }
+
+      // P_EX: AoI computation (all packets)
+      if (origin !== undefined) {
+        if (!pexByNode[recvStr]) pexByNode[recvStr] = {total:0,excess:0,hop1total:0,hop1excess:0};
+        if (!pexBySrc[srcStr])   pexBySrc[srcStr]   = {total:0,excess:0};
+        for (const {t: rxT, hop} of events) {
+          const aoi = (rxT - origin) * 1000;
+          if (aoi < 0) continue;
+          aoiList.push(aoi);
+          pexTotal++; pexByNode[recvStr].total++; pexBySrc[srcStr].total++;
+          if (aoi > TAOI_MS) {
+            pexExcess++; pexByNode[recvStr].excess++; pexBySrc[srcStr].excess++;
+          }
+          if (aoi < netMinAoi) netMinAoi = aoi;
+          if (aoi > netMaxAoi) netMaxAoi = aoi;
+          if (hop <= 1) {
+            pex1hopTotal++; pexByNode[recvStr].hop1total++;
+            if (aoi > TAOI_MS) { pex1hopExcess++; pexByNode[recvStr].hop1excess++; }
+          }
+        }
+      }
+    }
+  }
+
+  if (!isFinite(netMinAoi)) netMinAoi = 0;
+  const pexAll  = pexTotal     > 0 ? pexExcess     / pexTotal     : 0;
+  const pex1hop = pex1hopTotal > 0 ? pex1hopExcess / pex1hopTotal : 0;
+  const aoiAvg  = aoiList.length > 0 ? aoiList.reduce((a,b)=>a+b,0)/aoiList.length : 0;
+
+  // ── Build K_i (direct neighbourhood) and W(i,src) ────────────────────
+  // K_i = sources ever heard at hop=0 by node i
+  // W(i,src) = hop0_RX(i,src) / hop0_RX(i,all)
+  const K = {};  // K[recvStr] = Set of srcStr
+  const W = {};  // W[recvStr][srcStr] = weight
+  for (const recvNode of nodes) {
+    const recvStr  = String(recvNode);
+    const h0       = hop0Counts[recvStr] || {};
+    const totalH0  = Object.values(h0).reduce((a,b)=>a+b, 0);
+    K[recvStr]     = new Set(Object.keys(h0).filter(s => h0[s] > 0));
+    W[recvStr]     = {};
+    for (const srcStr of K[recvStr]) {
+      W[recvStr][srcStr] = totalH0 > 0 ? h0[srcStr] / totalH0 : 0;
+    }
+  }
+
+  // ── Paper P_D per node + P_D(hop=0) ──────────────────────────────────
+  const perNodePD = {};
+  for (const recvNode of nodes) {
+    const recvStr = String(recvNode);
+    const heard   = heardFrom[recvStr] || {};
+
+    // All hops: distinct sources heard ≥1 time post-tStart
+    const N_D = nodes.filter(s => s !== recvNode && heard[String(s)]).length;
+
+    // Hop≤1: distinct sources heard via hop≤1 post-tStart
+    let N_D_1hop = 0;
+    for (const srcNode of nodes) {
+      if (srcNode === recvNode) continue;
+      const srcStr = String(srcNode);
+      let heard1hop = false;
+      for (const [key, recvDict] of Object.entries(G.rxEvents)) {
+        const commaIdx = key.indexOf(',');
+        if (key.substring(0, commaIdx) !== srcStr) continue;
+        const origin = G.txOrigin[key];
+        if (origin !== undefined && origin < tStart) continue;
+        const evts = recvDict[recvStr];
+        if (!evts) continue;
+        if (evts.some(e => e.hop <= 1)) { heard1hop = true; break; }
+      }
+      if (heard1hop) N_D_1hop++;
+    }
+
+    // P_D(hop=0): weighted sum over K_i
+    // heard_hop0_in_window: for overall KPI use full log (no window filter)
+    const kSet = K[recvStr] || new Set();
+    let pd0 = 0;
+    for (const srcStr of kSet) {
+      // Check if this src ever sent a hop=0 packet to recvNode (full log)
+      if ((hop0Counts[recvStr] || {})[srcStr] > 0) {
+        pd0 += W[recvStr][srcStr] || 0;
+      }
+    }
+    // pd0 = 1.0 always for overall (all neighbours heard over full log)
+    // Meaningful value comes from windowed computation — store K_i size and W
+
+    perNodePD[recvNode] = {
+      N_D,      pd:      N_D      / Math.max(N - 1, 1),
+      N_D_1hop, pd_1hop: N_D_1hop / Math.max(N - 1, 1),
+      kSize: kSet.size,
+      pd0_overall: pd0,  // always ~1.0 over full log; windowed is meaningful
+    };
+  }
+  const paperPD      = nodes.reduce((s, n) => s + perNodePD[n].pd,      0) / N;
+  const paperPD_1hop = nodes.reduce((s, n) => s + perNodePD[n].pd_1hop, 0) / N;
+  const paperPD0     = nodes.reduce((s, n) => s + perNodePD[n].pd0_overall, 0) / N;
+
+  // ── Windowed P_D(hop=0) ───────────────────────────────────────────────
+  // Divide [tStart, logEnd] into TAM_S windows, compute P_D0 per window
+  const logEnd   = Math.max(...Object.values(G.txOrigin));
+  const nWindows = Math.max(1, Math.floor((logEnd - tStart) / TAM_S));
+  const pd0Windows = [];
+
+  for (let w = 0; w < nWindows; w++) {
+    const tFrom = tStart + w * TAM_S;
+    const tTo   = tStart + (w + 1) * TAM_S;
+
+    // heard_hop0_w[recvStr][srcStr] = true if ≥1 hop=0 RX in this window
+    const heard0w = {};
+    for (const recvNode of nodes) heard0w[String(recvNode)] = new Set();
+
+    for (const [key, recvDict] of Object.entries(G.rxEvents)) {
+      const commaIdx = key.indexOf(',');
+      const srcStr   = key.substring(0, commaIdx);
+      const origin   = G.txOrigin[key];
+      if (origin === undefined || origin < tFrom || origin >= tTo) continue;
+      for (const [recvStr, events] of Object.entries(recvDict)) {
+        if (events.some(e => e.hop === 0)) {
+          heard0w[recvStr].add(srcStr);
+        }
+      }
+    }
+
+    // P_D0(i,w) = Σ_{src∈K_i} W(i,src) × heard(i,src,w)
+    let windowPD0 = 0;
+    const perNodePD0w = {};
+    for (const recvNode of nodes) {
+      const recvStr = String(recvNode);
+      const kSet    = K[recvStr] || new Set();
+      let pd0w = 0;
+      for (const srcStr of kSet) {
+        if (heard0w[recvStr].has(srcStr)) {
+          pd0w += W[recvStr][srcStr] || 0;
+        }
+      }
+      perNodePD0w[recvNode] = { pd0: pd0w, kSize: kSet.size,
+                                 heard: heard0w[recvStr].size };
+      windowPD0 += pd0w;
+    }
+    windowPD0 /= N;
+    pd0Windows.push({ w, tFrom, tTo, pd0: windowPD0, perNode: perNodePD0w });
+  }
+  const overallPD0 = pd0Windows.length > 0
+    ? pd0Windows.reduce((s,w) => s + w.pd0, 0) / pd0Windows.length : 0;
+
+  // ── Per-source summary ────────────────────────────────────────────────
+  const srcSummary = {};
+  for (const srcNode of nodes) {
+    const srcStr = String(srcNode);
+    let heardCount = 0;
+    for (const recvNode of nodes) {
+      if (recvNode === srcNode) continue;
+      if (heardFrom[String(recvNode)] && heardFrom[String(recvNode)][srcStr]) heardCount++;
+    }
+    const srcPD = heardCount / Math.max(N - 1, 1);
+    const pexS  = pexBySrc[srcStr] || {total:0, excess:0};
+    srcSummary[srcNode] = {
+      pd: srcPD,
+      pex: pexS.total > 0 ? pexS.excess / pexS.total : 0,
+      pexExcess: pexS.excess, pexTotal: pexS.total,
+    };
+  }
+
+  return {
+    tStart, paperPD, paperPD_1hop, paperPD0, overallPD0, perNodePD,
+    pexAll, pexExcess, pexTotal,
+    pex1hop, pex1hopExcess, pex1hopTotal,
+    aoiAvg, netMinAoi, netMaxAoi,
+    srcSummary, nodes, K, W, pd0Windows, nWindows,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// KPI PANEL RENDER
+// ═══════════════════════════════════════════════════════════════════════
+function renderKPIPanel() {
+  const kpi = G.kpi;
+  if (!kpi) {
+    document.getElementById('panel-kpi').innerHTML =
+      '<div class="card"><p style="color:#888">Not enough data to compute KPIs (need ≥2 nodes with TX+RX lines).</p></div>';
+    return;
+  }
+
+  const pdColor  = kpi.paperPD      >= 0.99 ? '#1b7a34' : kpi.paperPD      >= 0.90 ? '#b45309' : '#b91c1c';
+  const pd1Color = kpi.paperPD_1hop >= 0.99 ? '#1b7a34' : kpi.paperPD_1hop >= 0.90 ? '#b45309' : '#b91c1c';
+  const pd0Color = kpi.overallPD0   >= 0.99 ? '#1b7a34' : kpi.overallPD0   >= 0.90 ? '#b45309' : '#b91c1c';
+  const pexColor = kpi.pexAll  <= 0.01 ? '#1b7a34' : '#b91c1c';
+  const p1Color  = kpi.pex1hop <= 0.01 ? '#1b7a34' : '#b91c1c';
+
+  let html = `<div class="card">
+    <h3>📐 Paper KPIs — Fuger &amp; Timm-Giel (VTC2023)</h3>
+    <p style="font-size:11px;color:#666;margin-bottom:12px">
+      P_D = (1/N)·Σ<sub>i</sub>[N<sub>D,i</sub>/(N−1)] &nbsp;|&nbsp;
+      P_EX = RX events with AoI &gt; T_AOI / total &nbsp;|&nbsp;
+      <b>T_AOI = ${TAOI_MS}ms (1.125s)</b> &nbsp;|&nbsp; <b>T_AM = ${TAM_S}s</b>
+    </p>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px">
+      <div class="stat-pill">
+        <span class="val" style="color:${pdColor}">${(kpi.paperPD*100).toFixed(1)}%</span>
+        <span class="lbl">P_D (all hops)</span>
+        <span style="font-size:10px;color:${pdColor}">${kpi.paperPD>=0.99?'✅ PASS ≥99%':'❌ FAIL <99%'}</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val" style="color:${pd1Color}">${(kpi.paperPD_1hop*100).toFixed(1)}%</span>
+        <span class="lbl">P_D (hop≤1)</span>
+        <span style="font-size:10px;color:${pd1Color}">${kpi.paperPD_1hop>=0.99?'✅ PASS ≥99%':'❌ FAIL <99%'}</span>
+      </div>
+      <div class="stat-pill" style="border:2px solid ${pd0Color}">
+        <span class="val" style="color:${pd0Color}">${(kpi.overallPD0*100).toFixed(1)}%</span>
+        <span class="lbl">P_D(hop=0) Direct</span>
+        <span style="font-size:10px;color:${pd0Color}">${kpi.overallPD0>=0.99?'✅ PASS ≥99%':'❌ FAIL <99%'}</span>
+        <span style="font-size:9px;color:#888">Weighted · T_AM windowed</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val" style="color:${pexColor}">${(kpi.pexAll*100).toFixed(3)}%</span>
+        <span class="lbl">P_EX (all hops)</span>
+        <span style="font-size:10px;color:${pexColor}">${kpi.pexAll<=0.01?'✅ PASS ≤1%':'❌ FAIL >1%'}</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val" style="color:${p1Color}">${(kpi.pex1hop*100).toFixed(3)}%</span>
+        <span class="lbl">P_EX (hop≤1)</span>
+        <span style="font-size:10px;color:${p1Color}">${kpi.pex1hop<=0.01?'✅ PASS':'❌ FAIL'}</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val">${kpi.pexExcess}/${kpi.pexTotal}</span>
+        <span class="lbl">Excess / Total RX</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val">${kpi.aoiAvg.toFixed(0)}ms</span>
+        <span class="lbl">Avg AoI</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val" style="color:${kpi.netMaxAoi>TAOI_MS?'#b91c1c':'#1b7a34'}">${kpi.netMaxAoi.toFixed(0)}ms</span>
+        <span class="lbl">Max AoI</span>
+      </div>
+      <div class="stat-pill">
+        <span class="val">${kpi.tStart.toFixed(2)}s</span>
+        <span class="lbl">T_AM warm-up end</span>
+      </div>
+    </div>`;
+
+  // Per-node P_D table
+  html += `<h3 style="font-size:13px;color:#01696f;margin:12px 0 8px">Per-Node P_D — N<sub>D,i</sub>/(N−1)</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr>
+        <th>Node</th>
+        <th>Src Heard (all)</th>
+        <th>Src Heard (hop≤1)</th>
+        <th>|K_i| (hop=0 nbrs)</th>
+        <th>N−1</th>
+        <th>P_D (all hops)</th>
+        <th>P_D (hop≤1)</th>
+        <th>P_D(hop=0) Direct</th>
+        <th>Status</th>
+        <th>Bar</th>
+      </tr></thead><tbody>`;
+  for (const n of kpi.nodes) {
+    const {N_D, pd, N_D_1hop, pd_1hop, kSize, pd0_overall} = kpi.perNodePD[n];
+    const col  = pd>=0.99?'#1b7a34':pd>=0.80?'#b45309':'#b91c1c';
+    const col1 = pd_1hop>=0.99?'#1b7a34':pd_1hop>=0.80?'#b45309':'#b91c1c';
+    const col0 = pd0_overall>=0.99?'#1b7a34':pd0_overall>=0.80?'#b45309':'#b91c1c';
+    const st   = pd>=0.99&&pd0_overall>=0.99?'✅ PASS':pd>=0.80?'⚠️ WARN':'❌ FAIL';
+    html += `<tr>
+      <td><b>Node ${n}</b></td>
+      <td class="num">${N_D}</td>
+      <td class="num">${N_D_1hop}</td>
+      <td class="num">${kSize}</td>
+      <td class="num">${G.nodes.size-1}</td>
+      <td class="num" style="color:${col};font-weight:700">${(pd*100).toFixed(1)}%</td>
+      <td class="num" style="color:${col1};font-weight:700">${(pd_1hop*100).toFixed(1)}%</td>
+      <td class="num" style="color:${col0};font-weight:700">${(pd0_overall*100).toFixed(1)}%</td>
+      <td>${st}</td>
+      <td><div class="pbar-wrap"><div class="pbar" style="width:${Math.min(pd*100,100)}%;background:${col}"></div></div></td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+
+  // Direct neighbourhood table
+  html += `<h3 style="font-size:13px;color:#01696f;margin:12px 0 8px">Direct Neighbourhood K<sub>i</sub> (hop=0 sources)</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Node</th><th>Direct Neighbours K_i</th><th>|K_i|</th><th>Link Weights W(i,src)</th></tr></thead><tbody>`;
+  for (const n of kpi.nodes) {
+    const recvStr = String(n);
+    const kSet    = kpi.K[recvStr] || new Set();
+    const wMap    = kpi.W[recvStr] || {};
+    const nbrs    = [...kSet].sort().map(s => `Node ${s}`).join(', ') || '—';
+    const weights = [...kSet].sort().map(s => `N${s}:${((wMap[s]||0)*100).toFixed(0)}%`).join(' ');
+    html += `<tr>
+      <td><b>Node ${n}</b></td>
+      <td>${nbrs}</td>
+      <td class="num">${kSet.size}</td>
+      <td style="font-size:11px;color:#666">${weights}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+
+  // Windowed P_D(hop=0) table
+  if (kpi.pd0Windows && kpi.pd0Windows.length > 0) {
+    html += `<h3 style="font-size:13px;color:#01696f;margin:12px 0 8px">P_D(hop=0) per T_AM Window</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Window</th><th>Time Range</th><th>P_D(hop=0) Network</th>`;
+    for (const n of kpi.nodes) html += `<th>Node ${n}</th>`;
+    html += `</tr></thead><tbody>`;
+    for (const w of kpi.pd0Windows) {
+      const col = w.pd0>=0.99?'#1b7a34':w.pd0>=0.80?'#b45309':'#b91c1c';
+      html += `<tr><td>W${w.w}</td><td>${w.tFrom.toFixed(1)}s–${w.tTo.toFixed(1)}s</td>
+        <td style="color:${col};font-weight:700">${(w.pd0*100).toFixed(1)}%</td>`;
+      for (const n of kpi.nodes) {
+        const pn = w.perNode[n] || {pd0:0};
+        const c  = pn.pd0>=0.99?'#1b7a34':pn.pd0>=0.80?'#b45309':'#b91c1c';
+        html += `<td style="color:${c}">${(pn.pd0*100).toFixed(1)}%</td>`;
+      }
+      html += `</tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  html += `</div>`;
+
+  // Per-source P_EX table
+  html += `<h3 style="font-size:13px;color:#01696f;margin:16px 0 8px">Per-Source P_EX — Excess Probability</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr>
+        <th>Source</th>
+        <th>Excess RX Events</th>
+        <th>Total RX Events</th>
+        <th data-tip="Fraction of RX events where AoI > TAOI_MS=1125ms">P_EX</th>
+        <th>Status</th>
+      </tr></thead><tbody>`;
+  for (const n of kpi.nodes) {
+    const s = kpi.srcSummary[n];
+    const col = s.pex<=0.01?'#1b7a34':'#b91c1c';
+    const st  = s.pex<=0.01?'✅ PASS':'❌ FAIL';
+    html += `<tr>
+      <td><b>Node ${n}</b></td>
+      <td class="num">${s.pexExcess}</td>
+      <td class="num">${s.pexTotal}</td>
+      <td class="num" style="color:${col};font-weight:700">${(s.pex*100).toFixed(3)}%</td>
+      <td>${st}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+
+  // AoI histogram chart
+  html += `<h3 style="font-size:13px;color:#01696f;margin:16px 0 8px">AoI Distribution</h3>
+    <div class="chart-grid">
+      <div class="chart-box">
+        <h4>AoI Histogram (all RX events)</h4>
+        <canvas id="chart-aoi-hist"></canvas>
+      </div>
+      <div class="chart-box">
+        <h4>P_D per Node (paper eq.1)</h4>
+        <canvas id="chart-pd-nodes"></canvas>
+      </div>
+      <div class="chart-box">
+        <h4>P_D(hop=0) Direct — per T_AM Window</h4>
+        <canvas id="chart-pd0-windows"></canvas>
+      </div>
+      <div class="chart-box">
+        <h4>P_EX per Source</h4>
+        <canvas id="chart-pex-src"></canvas>
+      </div>
+    </div>`;
+
+  html += `</div>`;
+  document.getElementById('panel-kpi').innerHTML = html;
+
+  // Render KPI charts after DOM update
+  setTimeout(() => renderKPICharts(kpi), 50);
+}
+
+function renderKPICharts(kpi) {
+  // AoI histogram
+  const bucketMs = 200;
+  const nBuckets = 20;
+  const buckets  = Array(nBuckets).fill(0);
+  for (const [key, recvDict] of Object.entries(G.rxEvents)) {
+    const origin = G.txOrigin[key];
+    if (origin === undefined) continue;
+    for (const events of Object.values(recvDict)) {
+      for (const {t: rxT} of events) {
+        const aoi = (rxT - origin) * 1000;
+        if (aoi < 0) continue;
+        const idx = Math.min(Math.floor(aoi / bucketMs), nBuckets - 1);
+        buckets[idx]++;
+      }
+    }
+  }
+  const aoiLabels = buckets.map((_,i) => `${i*bucketMs}-${(i+1)*bucketMs}`);
+  const aoiColors = buckets.map((_,i) => i*bucketMs >= TAOI_MS ? '#b91c1c' : '#01696f');
+  // AoI histogram — threshold line drawn via afterDraw plugin (no annotation plugin needed)
+  const thresholdPlugin = {
+    id: 'threshold',
+    afterDraw(chart) {
+      const {ctx, chartArea, scales} = chart;
+      if (!scales.x || !chartArea) return;
+      const xVal = TAOI_MS / bucketMs - 0.5;
+      const xPx  = scales.x.getPixelForValue(xVal);
+      if (xPx < chartArea.left || xPx > chartArea.right) return;
+      ctx.save();
+      ctx.strokeStyle = '#b91c1c';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xPx, chartArea.top);
+      ctx.lineTo(xPx, chartArea.bottom);
+      ctx.stroke();
+      ctx.fillStyle = '#b91c1c';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('T_AOI', xPx + 3, chartArea.top + 12);
+      ctx.restore();
+    }
+  };
+  destroyChart('aoi-hist');
+  charts['aoi-hist'] = new Chart(document.getElementById('chart-aoi-hist'), {
+    type: 'bar',
+    data: { labels: aoiLabels, datasets: [{ label: 'RX count', data: buckets, backgroundColor: aoiColors }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { maxRotation: 45, font: { size: 9 } } }, y: { beginAtZero: true } }
+    },
+    plugins: [thresholdPlugin]
+  });
+
+  // P_D per node bar chart — grouped: all hops + hop≤1
+  const pdLabels  = kpi.nodes.map(n => `N${n}`);
+  const pdVals    = kpi.nodes.map(n => +(kpi.perNodePD[n].pd      * 100).toFixed(1));
+  const pdVals1h  = kpi.nodes.map(n => +(kpi.perNodePD[n].pd_1hop * 100).toFixed(1));
+  destroyChart('pd-nodes');
+  charts['pd-nodes'] = new Chart(document.getElementById('chart-pd-nodes'), {
+    type: 'bar',
+    data: { labels: pdLabels, datasets: [
+      { label: 'P_D (all hops)', data: pdVals,   backgroundColor: pdVals.map(v=>v>=99?'#1b7a34':v>=80?'#b45309':'#b91c1c') },
+      { label: 'P_D (hop≤1)',    data: pdVals1h, backgroundColor: pdVals1h.map(v=>v>=99?'rgba(27,122,52,0.5)':v>=80?'rgba(180,83,9,0.5)':'rgba(185,28,28,0.5)') },
+    ]},
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true, max: 101, ticks: { callback: v => v + '%' } } }
+    }
+  });
+
+  // P_EX per source bar chart
+  const pexLabels = kpi.nodes.map(n => `N${n}`);
+  const pexVals   = kpi.nodes.map(n => +(kpi.srcSummary[n].pex * 100).toFixed(3));
+  const pexColors = pexVals.map(v => v > 1 ? '#b91c1c' : '#1b7a34');
+  destroyChart('pex-src');
+  charts['pex-src'] = new Chart(document.getElementById('chart-pex-src'), {
+    type: 'bar',
+    data: { labels: pexLabels, datasets: [{ label: 'P_EX (%)', data: pexVals, backgroundColor: pexColors }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => v.toFixed(2) + '%' } } }
+    }
+  });
+
+  // ── P_D(hop=0) windowed chart ─────────────────────────────────────────
+  if (kpi.pd0Windows && kpi.pd0Windows.length > 0) {
+    const wLabels  = kpi.pd0Windows.map(w => `W${w.w}\n${w.tFrom.toFixed(0)}s`);
+    const netPD0   = kpi.pd0Windows.map(w => +(w.pd0 * 100).toFixed(1));
+    const nodeDatasets = kpi.nodes.map((n, i) => {
+      const colors = ['#01696f','#b45309','#1d4ed8','#7c3aed','#be185d','#065f46'];
+      return {
+        label: `Node ${n}`,
+        data: kpi.pd0Windows.map(w => +((w.perNode[n]?.pd0 || 0) * 100).toFixed(1)),
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length] + '33',
+        tension: 0.3, fill: false, pointRadius: 4,
+      };
+    });
+    // Add network average line
+    nodeDatasets.unshift({
+      label: 'Network Avg',
+      data: netPD0,
+      borderColor: '#b91c1c',
+      backgroundColor: 'transparent',
+      borderWidth: 3, borderDash: [6,3],
+      tension: 0.3, fill: false, pointRadius: 5,
+    });
+    destroyChart('pd0-windows');
+    charts['pd0-windows'] = new Chart(document.getElementById('chart-pd0-windows'), {
+      type: 'line',
+      data: { labels: wLabels, datasets: nodeDatasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}%` } }
+        },
+        scales: {
+          y: { min: 0, max: 101, ticks: { callback: v => v + '%' },
+               title: { display: true, text: 'P_D(hop=0) %' } },
+          x: { title: { display: true, text: 'T_AM Window' } }
+        }
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// STATUS BAR
+// ═══════════════════════════════════════════════════════════════════════
+function updateStatusBar() {
+  let totalRx=0, totalSuppress=0, totalUpdate=0, totalStale=0, totalFwd=0;
+  const uniquePkts = new Set();
+  for (const ev of G.events) {
+    if (ev.type === 'RX') totalRx++;
+    if (ev.type === 'CBF_SUPPRESS') totalSuppress++;
+    if (ev.type === 'CBF_HOP_IGNORE') totalSuppress++;
+    if (ev.type === 'RDF_SUPPRESS') totalSuppress++;
+    if (ev.type === 'RDF_HOP_IGNORE') totalSuppress++;
+    if (ev.type === 'PENDING_UPDATE') totalUpdate++;
+    if (ev.type === 'PENDING_DROP_STALE') totalStale++;
+    if (ev.type === 'FWD') totalFwd++;
+    if (ev.type === 'TX') {
+      const seq = (ev.msg.match(/seq=(\d+)/) || [])[1];
+      if (seq) uniquePkts.add(`${ev.node}_${seq}`);
+    }
+  }
+  document.getElementById('s-lines').textContent = G.lines.toLocaleString();
+  document.getElementById('s-nodes').textContent = G.nodes.size;
+  document.getElementById('s-pkts').textContent = uniquePkts.size;
+  document.getElementById('s-rx').textContent = totalRx.toLocaleString();
+  document.getElementById('s-suppress').textContent = totalSuppress.toLocaleString();
+  document.getElementById('s-update').textContent = totalUpdate.toLocaleString();
+  document.getElementById('s-stale').textContent = totalStale;
+  document.getElementById('s-fwd').textContent = totalFwd.toLocaleString();
+  document.getElementById('s-duration').textContent = G.duration.toFixed(1) + 's';
+
+  // Compute global delivery rates across all (node,src) pairs
+  let gDel=0, gSup=0, gIgn=0, gRdfSup=0, gRdfIgn=0, gArr=0;
+  for (const srcs of Object.values(G.fate))
+    for (const d of Object.values(srcs)) {
+      gDel += d.delivered; gSup += d.suppressed;
+      gIgn += (d.hop_ignored||0);
+      gRdfSup += (d.rdf_suppressed||0);
+      gRdfIgn += (d.rdf_hop_ignored||0);
+      gArr += d.total_arrive;
+    }
+  const gNaive = gArr > 0 ? (gDel / gArr * 100).toFixed(1) : '—';
+  const gRdf   = gArr > 0 ? ((gDel + gSup + gIgn + gRdfSup + gRdfIgn) / gArr * 100).toFixed(1) : '—';
+  // Add KPI pills to status bar
+  const kpi = G.kpi;
+  if (kpi) {
+    const pdColor  = kpi.paperPD >= 0.99 ? '#1b7a34' : '#b91c1c';
+    const pexColor = kpi.pexAll  <= 0.01 ? '#1b7a34' : '#b91c1c';
+    document.getElementById('s-naive-rate').textContent = (kpi.paperPD*100).toFixed(1) + '%';
+    document.getElementById('s-naive-rate').style.color = pdColor;
+    document.getElementById('s-naive-rate').closest('.stat-pill').querySelector('.lbl').textContent = 'P_D (paper)';
+    document.getElementById('s-rdf-rate').textContent = (kpi.pexAll*100).toFixed(3) + '%';
+    document.getElementById('s-rdf-rate').style.color = pexColor;
+    document.getElementById('s-rdf-rate').closest('.stat-pill').querySelector('.lbl').textContent = 'P_EX';
+  } else {
+    document.getElementById('s-naive-rate').textContent = gNaive + (gArr>0?'%':'');
+    document.getElementById('s-rdf-rate').textContent   = gRdf   + (gArr>0?'%':'');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// POPULATE FILTERS
+// ═══════════════════════════════════════════════════════════════════════
+function populateFilters() {
+  const nodes = [...G.nodes].sort((a,b)=>a-b);
+  const srcs  = [...G.sources].sort((a,b)=>a-b);
+
+  ['fate-node-filter','ev-node'].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="all">All nodes</option>';
+    nodes.forEach(n => sel.innerHTML += `<option value="${n}">Node ${n}</option>`);
+  });
+
+  const fateSrc = document.getElementById('fate-src-filter');
+  fateSrc.innerHTML = '<option value="all">All sources</option>';
+  srcs.forEach(s => fateSrc.innerHTML += `<option value="${s}">Src ${s}</option>`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FATE TABLE
+// ═══════════════════════════════════════════════════════════════════════
+function getFateRows() {
+  const nodeF = document.getElementById('fate-node-filter').value;
+  const srcF  = document.getElementById('fate-src-filter').value;
+  const rows = [];
+  for (const [node, srcs] of Object.entries(G.fate)) {
+    if (nodeF !== 'all' && parseInt(node) !== parseInt(nodeF)) continue;
+    for (const [src, d] of Object.entries(srcs)) {
+      if (srcF !== 'all' && parseInt(src) !== parseInt(srcF)) continue;
+      const total   = d.total_arrive;
+      const eff     = total > 0 ? (d.delivered / total * 100) : 0;
+      // delivery_RDF = (delivered + cbf_suppressed + cbf_hop_ignored + rdf_suppressed + rdf_hop_ignored) / total
+      // All suppress/ignore events = node was informed, timer handled correctly
+      // Only stale drops and never-arrived = true loss
+      const allInformed = d.delivered + d.suppressed + (d.hop_ignored||0) + (d.rdf_suppressed||0) + (d.rdf_hop_ignored||0);
+      const rdf_eff = total > 0 ? (allInformed / total * 100) : 0;
+      rows.push({node:parseInt(node), src:parseInt(src), ...d, total_arrive:total, eff, rdf_eff});
+    }
+  }
+  // Sort
+  rows.sort((a,b) => {
+    let va = a[fateSort.col], vb = b[fateSort.col];
+    return fateSort.asc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+  return rows;
+}
+
+function renderFateTable() {
+  const rows = getFateRows();
+  const tbody = document.getElementById('fate-tbody');
+  tbody.innerHTML = rows.map(r => {
+    const pct     = r.eff.toFixed(1);
+    const rdfPct  = r.rdf_eff.toFixed(1);
+    const barColor    = r.eff     >= 80 ? '#1b7a34' : r.eff     >= 50 ? '#b45309' : '#b91c1c';
+    const rdfBarColor = r.rdf_eff >= 95 ? '#0369a1' : r.rdf_eff >= 80 ? '#1b7a34' : r.rdf_eff >= 60 ? '#b45309' : '#b91c1c';
+    return `<tr>
+      <td><b>Node ${r.node}</b></td>
+      <td>Src ${r.src}</td>
+      <td class="num fate-delivered">${r.delivered}</td>
+      <td class="num fate-updated">${r.updated}</td>
+      <td class="num fate-stale">${r.stale}</td>
+      <td class="num fate-suppressed">${r.suppressed}</td>
+      <td class="num" style="color:#7c3aed;font-weight:600">${r.hop_ignored||0}</td>
+      <td class="num">${r.total_arrive}</td>
+      <td class="num" style="color:${barColor}">${pct}%</td>
+      <td class="num fate-rdf" style="background:#e8f4ff;color:${rdfBarColor}">${rdfPct}%</td>
+      <td><div class="pbar-wrap"><div class="pbar" style="width:${Math.min(r.rdf_eff,100)}%;background:${rdfBarColor}"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderFateTotals() {
+  const nodes = [...G.nodes].sort((a,b)=>a-b);
+  const tbody = document.getElementById('fate-totals-tbody');
+  tbody.innerHTML = nodes.map(node => {
+    let del=0, upd=0, stl=0, sup=0, ign=0, rdf_sup=0, rdf_ign=0, arr=0;
+    const srcs = G.fate[node] || {};
+    for (const d of Object.values(srcs)) {
+      del += d.delivered; upd += d.updated; stl += d.stale;
+      sup += d.suppressed; ign += (d.hop_ignored||0);
+      rdf_sup += (d.rdf_suppressed||0); rdf_ign += (d.rdf_hop_ignored||0);
+      arr += d.total_arrive;
+    }
+    let fwdTotal = 0;
+    for (const v of Object.values(G.fwd[node] || {})) fwdTotal += v;
+    const ownTx   = G.own_tx[node] || 0;
+    const eff     = arr > 0 ? (del / arr * 100).toFixed(1) : '—';
+    const allInf  = del + sup + ign + rdf_sup + rdf_ign;
+    const rdfEff  = arr > 0 ? (allInf / arr * 100).toFixed(1) : '—';
+    const rdfColor = parseFloat(rdfEff) >= 95 ? '#0369a1' : parseFloat(rdfEff) >= 80 ? '#1b7a34' : '#b45309';
+    return `<tr>
+      <td><b>Node ${node}</b></td>
+      <td class="num fate-delivered">${del}</td>
+      <td class="num fate-updated">${upd}</td>
+      <td class="num fate-stale">${stl}</td>
+      <td class="num fate-suppressed">${sup}</td>
+      <td class="num" style="color:#7c3aed;font-weight:600">${ign}</td>
+      <td class="num" style="color:#b91c1c;font-weight:600">${rdf_sup}</td>
+      <td class="num" style="color:#9c27b0;font-weight:600">${rdf_ign}</td>
+      <td class="num">${arr}</td>
+      <td class="num">${ownTx}</td>
+      <td class="num">${fwdTotal}</td>
+      <td class="num">${eff}%</td>
+      <td class="num fate-rdf" style="background:#e8f4ff;color:${rdfColor}">${rdfEff}%</td>
+    </tr>`;
+  }).join('');
+}
+
+function sortFate(col) {
+  if (fateSort.col === col) fateSort.asc = !fateSort.asc;
+  else { fateSort.col = col; fateSort.asc = true; }
+  renderFateTable();
+}
+
+function exportFateCSV() {
+  const rows = getFateRows();
+  const hdr = 'Node,Source,Delivered,PendingUpdated,StaleDrops,CBFSuppressed,TotalArrivals,DeliveryRate%,Delivery_RDF%\n';
+  const body = rows.map(r =>
+    `${r.node},${r.src},${r.delivered},${r.updated},${r.stale},${r.suppressed},${r.total_arrive},${r.eff.toFixed(1)},${r.rdf_eff.toFixed(1)}`
+  ).join('\n');
+  const blob = new Blob([hdr+body], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'rdf_fate_table.csv';
+  a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════════════════════════════════
+let charts = {};
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function renderCharts() {
+  const nodes = [...G.nodes].sort((a,b)=>a-b);
+  const labels = nodes.map(n => `N${n}`);
+
+  // Aggregate per node
+  const del=[], upd=[], stl=[], sup=[], arr=[], eff=[], fwdArr=[];
+  for (const node of nodes) {
+    let d=0,u=0,s=0,sp=0,a=0;
+    for (const v of Object.values(G.fate[node]||{})) {
+      d+=v.delivered; u+=v.updated; s+=v.stale; sp+=v.suppressed; a+=v.total_arrive;
+    }
+    del.push(d); upd.push(u); stl.push(s); sup.push(sp); arr.push(a);
+    eff.push(a>0 ? +(d/a*100).toFixed(1) : 0);
+    let fw=0; for (const v of Object.values(G.fwd[node]||{})) fw+=v;
+    fwdArr.push(fw);
+  }
+
+  // Stacked bar
+  destroyChart('fate-stacked');
+  charts['fate-stacked'] = new Chart(document.getElementById('chart-fate-stacked'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Delivered',    data:del, backgroundColor:'#1b7a34'},
+        {label:'Pending Upd',  data:upd, backgroundColor:'#b45309'},
+        {label:'Stale Drop',   data:stl, backgroundColor:'#7c3aed'},
+        {label:'CBF Suppress', data:sup, backgroundColor:'#b91c1c'},
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{position:'bottom'}},
+      scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}
+  });
+
+  // Pie
+  const totDel=del.reduce((a,b)=>a+b,0);
+  const totUpd=upd.reduce((a,b)=>a+b,0);
+  const totStl=stl.reduce((a,b)=>a+b,0);
+  const totSup=sup.reduce((a,b)=>a+b,0);
+  destroyChart('fate-pie');
+  charts['fate-pie'] = new Chart(document.getElementById('chart-fate-pie'), {
+    type:'doughnut',
+    data:{
+      labels:['Delivered','Pending Updated','Stale Drop','CBF Suppressed'],
+      datasets:[{data:[totDel,totUpd,totStl,totSup],
+        backgroundColor:['#1b7a34','#b45309','#7c3aed','#b91c1c']}]
+    },
+    options:{responsive:true,plugins:{legend:{position:'bottom'}}}
+  });
+
+  // Suppress vs Update
+  destroyChart('suppress-update');
+  charts['suppress-update'] = new Chart(document.getElementById('chart-suppress-update'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'CBF Suppressed', data:sup, backgroundColor:'#b91c1c'},
+        {label:'Pending Updated',data:upd, backgroundColor:'#b45309'},
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{position:'bottom'}},
+      scales:{x:{stacked:false},y:{beginAtZero:true}}}
+  });
+
+  // Delivery rate
+  destroyChart('delivery-rate');
+  charts['delivery-rate'] = new Chart(document.getElementById('chart-delivery-rate'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {
+          label:'Delivery Rate % (naive)',
+          data:eff,
+          backgroundColor: eff.map(v => v>=80?'rgba(27,122,52,0.7)':v>=50?'rgba(180,83,9,0.7)':'rgba(185,28,28,0.7)'),
+        },
+        {
+          label:'Delivery_RDF % (fair)',
+          data: nodes.map(node => {
+            let del=0,sup=0,ign=0,rdfSup=0,rdfIgn=0,arr=0;
+            for(const d of Object.values(G.fate[node]||{})){
+              del+=d.delivered; sup+=d.suppressed;
+              ign+=(d.hop_ignored||0);
+              rdfSup+=(d.rdf_suppressed||0);
+              rdfIgn+=(d.rdf_hop_ignored||0);
+              arr+=d.total_arrive;
+            }
+            return arr>0?+((del+sup+ign+rdfSup+rdfIgn)/arr*100).toFixed(1):0;
+          }),
+          backgroundColor:'rgba(3,105,161,0.85)',
+        }
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{position:'bottom'}},
+      scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}
+  });
+
+  // Forwards
+  destroyChart('fwd');
+  charts['fwd'] = new Chart(document.getElementById('chart-fwd'), {
+    type:'bar',
+    data:{labels, datasets:[{label:'Forwards',data:fwdArr,backgroundColor:'#0369a1'}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+
+  // Timeline — bucket arrivals into 1s bins
+  const bucketSize = Math.max(1, Math.floor(G.duration / 60));
+  const nBuckets = Math.ceil(G.duration / bucketSize) + 1;
+  const buckets = Array(nBuckets).fill(0);
+  for (const ev of G.events) {
+    if (ev.type === 'ARRIVE') {
+      const b = Math.floor(ev.t / bucketSize);
+      if (b < nBuckets) buckets[b]++;
+    }
+  }
+  const tlLabels = buckets.map((_,i) => `${(i*bucketSize).toFixed(0)}s`);
+  destroyChart('timeline');
+  charts['timeline'] = new Chart(document.getElementById('chart-timeline'), {
+    type:'line',
+    data:{labels:tlLabels, datasets:[{
+      label:'Arrivals/bin',data:buckets,
+      borderColor:'#01696f',backgroundColor:'rgba(1,105,111,.15)',
+      fill:true,tension:.3,pointRadius:0,
+    }]},
+    options:{responsive:true,plugins:{legend:{display:false}},
+      scales:{y:{beginAtZero:true}}}
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// HEATMAP
+// ═══════════════════════════════════════════════════════════════════════
+function heatColor(val, max, hue) {
+  if (max === 0) return '#f5f5f5';
+  const pct = val / max;
+  const l = Math.round(95 - pct * 55);
+  return `hsl(${hue},70%,${l}%)`;
+}
+
+function buildHeatmapHTML(metric, hue, title) {
+  const nodes  = [...G.nodes].sort((a,b)=>a-b);
+  const srcs   = [...G.sources].sort((a,b)=>a-b);
+  let maxVal = 0;
+  for (const node of nodes)
+    for (const src of srcs) {
+      const d = (G.fate[node]||{})[src];
+      if (!d) continue;
+      let v = 0;
+      if (metric === 'eff') v = d.total_arrive>0?d.delivered/d.total_arrive*100:0;
+      else if (metric === 'rdf_eff') v = d.total_arrive>0?(d.delivered+d.suppressed+(d.hop_ignored||0)+(d.rdf_suppressed||0)+(d.rdf_hop_ignored||0))/d.total_arrive*100:0;
+      else v = d[metric]||0;
+      if (v > maxVal) maxVal = v;
+    }
+
+  let html = `<table class="heatmap-table"><thead><tr><th>Node↓ / Src→</th>`;
+  for (const s of srcs) html += `<th>Src ${s}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const node of nodes) {
+    html += `<tr><th>Node ${node}</th>`;
+    for (const src of srcs) {
+      const d = (G.fate[node]||{})[src];
+      let v = 0;
+      if (d) {
+        if (metric === 'eff') v = d.total_arrive>0?+(d.delivered/d.total_arrive*100).toFixed(1):0;
+        else if (metric === 'rdf_eff') v = d.total_arrive>0?+((d.delivered+d.suppressed+(d.hop_ignored||0)+(d.rdf_suppressed||0)+(d.rdf_hop_ignored||0))/d.total_arrive*100).toFixed(1):0;
+        else v = d[metric]||0;
+      }
+      const bg = heatColor(v, maxVal, hue);
+      const display = (metric === 'eff' || metric === 'rdf_eff') ? v+'%' : (v||'');
+      html += `<td style="background:${bg};font-weight:${v>0?600:400}">${display}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderHeatmap() {
+  const metric = document.getElementById('heatmap-metric').value;
+  const hues = {delivered:142,updated:35,stale:270,suppressed:0,total_arrive:210,eff:142,rdf_eff:210};
+  document.getElementById('heatmap-container').innerHTML =
+    buildHeatmapHTML(metric, hues[metric]||142, metric);
+}
+
+function renderSuppressHeatmap() {
+  document.getElementById('heatmap-suppress').innerHTML =
+    buildHeatmapHTML('suppressed', 0, 'CBF Suppressed');
+}
+
+function renderUpdateHeatmap() {
+  document.getElementById('heatmap-update').innerHTML =
+    buildHeatmapHTML('updated', 35, 'Pending Updated');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PDR
+// ═══════════════════════════════════════════════════════════════════════
+function renderPDR() {
+  const rows = Object.values(G.pdr_stats).sort((a,b)=>a.node-b.node||a.src-b.src);
+  const tbody = document.getElementById('pdr-tbody');
+  tbody.innerHTML = rows.map(r => {
+    const pct = r.pdr || 0;
+    const barColor = pct>=90?'#1b7a34':pct>=70?'#b45309':'#b91c1c';
+    return `<tr>
+      <td><b>Node ${r.node}</b></td>
+      <td>Src ${r.src}</td>
+      <td class="num">${r.recv}</td>
+      <td class="num">${r.exp}</td>
+      <td class="num" style="color:${barColor};font-weight:700">${pct.toFixed(1)}%</td>
+      <td class="num">${r.fwd}</td>
+      <td><div class="pbar-wrap"><div class="pbar" style="width:${Math.min(pct,100)}%;background:${barColor}"></div></div></td>
+    </tr>`;
+  }).join('');
+
+  // PDR bar chart
+  const labels = rows.map(r=>`N${r.node}/S${r.src}`);
+  const pdrs   = rows.map(r=>r.pdr||0);
+  destroyChart('pdr-bar');
+  charts['pdr-bar'] = new Chart(document.getElementById('chart-pdr-bar'), {
+    type:'bar',
+    data:{labels, datasets:[{
+      label:'PDR %',data:pdrs,
+      backgroundColor:pdrs.map(v=>v>=90?'#1b7a34':v>=70?'#b45309':'#b91c1c'),
+    }]},
+    options:{responsive:true,plugins:{legend:{display:false}},
+      scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}},
+              x:{ticks:{font:{size:9}}}}}
+  });
+
+  // Own TX
+  const nodes = [...G.nodes].sort((a,b)=>a-b);
+  const txVals = nodes.map(n => G.own_tx_stats[n] || G.own_tx[n] || 0);
+  destroyChart('own-tx');
+  charts['own-tx'] = new Chart(document.getElementById('chart-own-tx'), {
+    type:'bar',
+    data:{labels:nodes.map(n=>`N${n}`),
+      datasets:[{label:'Own TX',data:txVals,backgroundColor:'#0369a1'}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// EVENT LOG
+// ═══════════════════════════════════════════════════════════════════════
+const EV_COLORS = {
+  ARRIVE:'#e3f2fd', RX:'#e8f5e9', 
+  CBF_SUPPRESS:'#ffebee', CBF_HOP_IGNORE:'#fce4ec',
+  RDF_SUPPRESS:'#ffd7d7', RDF_HOP_IGNORE:'#ffe8e8',
+  PENDING_UPDATE:'#fff3e0', PENDING_DROP_STALE:'#f3e5f5',
+  FWD:'#fce4ec', TX:'#fffde7',
+  PDR:'#f3e5f5', DISSEM:'#e0f7fa', SUPPRESS_MISS:'#f5f5f5',
+  CBF_TIMER:'#fff8e1', STATS:'#e8eaf6',
+};
+
+function renderEventLog() {
+  const search = document.getElementById('ev-search').value.toLowerCase();
+  const nodeF  = document.getElementById('ev-node').value;
+  const typeF  = document.getElementById('ev-type').value;
+  const srcF   = document.getElementById('ev-src').value;
+
+  const filtered = G.events.filter(ev => {
+    if (nodeF !== 'all' && ev.node !== parseInt(nodeF)) return false;
+    if (typeF !== 'all' && ev.type !== typeF) return false;
+    if (srcF) {
+      const s = (ev.msg.match(/src=(\d+)/) || [])[1];
+      if (s !== srcF) return false;
+    }
+    if (search && !ev.msg.toLowerCase().includes(search) &&
+        !String(ev.node).includes(search)) return false;
+    return true;
+  });
+
+  document.getElementById('ev-count').textContent =
+    `${filtered.length.toLocaleString()} events`;
+
+  const show = filtered.slice(0, 2000);
+  const tbody = document.getElementById('ev-tbody');
+  tbody.innerHTML = show.map(ev => {
+    const bg = EV_COLORS[ev.type] || '#fff';
+    const tStr = ev.t.toFixed(3).padStart(8,'0');
+    return `<tr style="background:${bg}">
+      <td style="font-variant-numeric:tabular-nums;color:#555">${tStr}s</td>
+      <td><b>N${ev.node}</b></td>
+      <td><span style="font-weight:700;color:#01696f">${ev.type}</span></td>
+      <td style="font-family:monospace;font-size:11px">${ev.msg}</td>
+    </tr>`;
+  }).join('');
+
+  if (filtered.length > 2000) {
+    tbody.innerHTML += `<tr><td colspan="4" style="text-align:center;color:#888;padding:10px">
+      … showing first 2000 of ${filtered.length.toLocaleString()} matching events …</td></tr>`;
+  }
+}
+
+function clearEvFilters() {
+  document.getElementById('ev-search').value = '';
+  document.getElementById('ev-node').value = 'all';
+  document.getElementById('ev-type').value = 'all';
+  document.getElementById('ev-src').value = '';
+  renderEventLog();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════════════
+function showTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// HEIGHT REPORTING
+// ═══════════════════════════════════════════════════════════════════════
+function sendHeight() {
+  window.parent.postMessage({ iframeHeight: document.documentElement.scrollHeight }, '*');
+}
+window.addEventListener('load', sendHeight);
+window.addEventListener('resize', sendHeight);
+</script>
+</body>
+</html>
