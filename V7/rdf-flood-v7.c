@@ -37,7 +37,7 @@
 #define RDF_MAX_JITTER (CLOCK_SECOND / 200) /* ~5 ms */
 #endif
 #ifndef DIST_MIN_WAIT_MS
-#define DIST_MIN_WAIT_MS 5
+#define DIST_MIN_WAIT_MS 1
 #endif
 #ifndef DIST_MAX_WAIT_MS
 #define DIST_MAX_WAIT_MS 2000
