@@ -7,9 +7,12 @@
  *   - valid_src() no longer assumes small sequential COOJA IDs
  *   - HW_SLOT() hashes the large MAC-derived node_id into array bounds
  *   - slot_to_srcid[] maps slot -> real node_id for correct STATS logging
- *   - safe_hw_slot() detects and logs HW_SLOT() hash collisions
+ *   - safe_hw_slot() resolves collisions via linear probing
+ *   - my_slot: own node's collision-safe slot, computed once at boot via
+ *     safe_hw_slot(node_id) and used for coordinates, seen[], last_seq_seen[]
+ *     — fixes coordinate collision and own-TX bookkeeping corruption
  *   - COOJA live-position feed (sim_pos_x/y) removed (not available on HW)
- *   - init_node_coordinates() uses HW_SLOT() instead of node_id-1
+ *   - init_node_coordinates() uses my_slot instead of raw HW_SLOT()
  *   - Timing macros (DIST_MIN_WAIT, DIST_MAX_WAIT, RDF_MIN/MAX_JITTER)
  *     are set as direct tick values for CLOCK_SECOND=100 (IoT-LAB M3 100Hz)
  *     to avoid integer truncation to 0 that breaks CBF distance-wait
@@ -168,6 +171,11 @@ static uint32_t      own_tx_count = 0;
  * 0 means unoccupied. Populated on first packet from each source. */
 static uint16_t      slot_to_srcid[MAX_NODES];
 
+/* Own node's collision-safe slot — computed ONCE at boot via
+ * safe_hw_slot(node_id). Used for coordinates, seen[], last_seq_seen[].
+ * Guarantees no overlap with any remote source's slot.              */
+static uint16_t      my_slot = 0;
+
 PROCESS(rdf_process, "RDF Flooding");
 AUTOSTART_PROCESSES(&rdf_process);
 
@@ -238,11 +246,12 @@ safe_hw_slot(uint16_t src_id)
 static void
 init_node_coordinates(void)
 {
-  uint16_t idx = HW_SLOT(node_id);
-  my_x_m = (int16_t)((idx % COORD_GRID_COLS) * COORD_SPACING_M);
-  my_y_m = (int16_t)((idx / COORD_GRID_COLS) * COORD_SPACING_M);
+  /* Use my_slot (collision-safe) not raw HW_SLOT() so two nodes that
+   * hash to the same natural slot get different grid coordinates.    */
+  my_x_m = (int16_t)((my_slot % COORD_GRID_COLS) * COORD_SPACING_M);
+  my_y_m = (int16_t)((my_slot / COORD_GRID_COLS) * COORD_SPACING_M);
   LOG_INFO("INIT node=%u hw_slot=%u fallback_xy=(%d,%d)\n",
-           node_id, idx, (int)my_x_m, (int)my_y_m);
+           node_id, my_slot, (int)my_x_m, (int)my_y_m);
 }
 
 /* =========================================================================
@@ -353,8 +362,12 @@ rdf_phase2_callback(void *ptr)
   simple_udp_sendto(&udp_conn, msg, sizeof(*msg), &mcast_addr);
 
   if(valid_src(msg->src_id)) {
-    slot = HW_SLOT(msg->src_id);
-    fwd_count[slot]++;
+    /* msg->src_id was already validated and slotted when the packet
+     * first arrived — safe_hw_slot() will return the existing slot  */
+    slot = safe_hw_slot(msg->src_id);
+    if(slot != 0xFFFF) {
+      fwd_count[slot]++;
+    }
   }
 
   st->phase = 0;
@@ -666,6 +679,15 @@ PROCESS_THREAD(rdf_process, ev, data)
 
   PROCESS_BEGIN();
 
+  /* Resolve own slot FIRST — before init_node_coordinates() or any
+   * array access — so my_slot is collision-safe and unique.         */
+  my_slot = safe_hw_slot(node_id);
+  if(my_slot == 0xFFFF) {
+    /* Table full at boot — extremely unlikely, use slot 0 as fallback */
+    LOG_WARN("my_slot: table full at boot, using slot 0\n");
+    my_slot = 0;
+  }
+
   init_node_coordinates();
 
   for(i = 0; i < MAX_NODES; i++) {
@@ -699,8 +721,8 @@ PROCESS_THREAD(rdf_process, ev, data)
     }
 
     if(etimer_expired(&periodic_timer)) {
-      uint16_t own_slot = HW_SLOT(node_id);
-
+      /* Use my_slot (collision-safe, set at boot) — not raw HW_SLOT() —
+       * so own seen[]/last_seq_seen[] never overlaps a remote source's slot */
       msg.src_id     = node_id;
       msg.seq_no     = my_seq;
       msg.hop_count  = 0;
@@ -710,9 +732,9 @@ PROCESS_THREAD(rdf_process, ev, data)
       msg.sender_y_m = my_y_m;
 
       /* Mark own packet as seen so we never relay our own transmissions */
-      seen[own_slot][my_seq % MAX_SEQ_TRACK] = 1;
-      if(my_seq > last_seq_seen[own_slot]) {
-        last_seq_seen[own_slot] = my_seq;
+      seen[my_slot][my_seq % MAX_SEQ_TRACK] = 1;
+      if(my_seq > last_seq_seen[my_slot]) {
+        last_seq_seen[my_slot] = my_seq;
       }
 
       LOG_INFO("TX src=%u seq=%u xy=(%d,%d)\n",
